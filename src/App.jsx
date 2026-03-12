@@ -26,6 +26,45 @@ async function dbSave(d) {
   } catch {}
 }
 
+// ── Auth ───────────────────────────────────────────────────────────────────
+async function sha256(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+async function authLogin(username, password) {
+  try {
+    const hash = await sha256(password);
+    const res = await fetch(
+      `${SB_URL}/rest/v1/users?username=eq.${encodeURIComponent(username.toLowerCase().trim())}&active=eq.true&select=id,username,display_name,role`,
+      { headers: HEADERS }
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (!rows.length) return null;
+    // Verify password hash
+    const res2 = await fetch(
+      `${SB_URL}/rest/v1/users?id=eq.${rows[0].id}&password_hash=eq.${hash}&select=id`,
+      { headers: HEADERS }
+    );
+    if (!res2.ok) return null;
+    const check = await res2.json();
+    if (!check.length) return null;
+    return rows[0]; // { id, username, display_name, role }
+  } catch { return null; }
+}
+
+const SESSION_KEY = "pd_session";
+function loadSession() {
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch { return null; }
+}
+function saveSession(user) {
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(user)); } catch {}
+}
+function clearSession() {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+}
+
 // ── Breakpoint hook ────────────────────────────────────────────────────────
 function useIsMobile() {
   const [mobile, setMobile] = useState(window.innerWidth < 768);
@@ -59,7 +98,22 @@ const CENTROIDS = {
   "Évora":[-7.91,38.57],"Beja":[-7.87,37.96],"Faro":[-7.93,37.02],
 };
 const CANARIAS = ["Las Palmas","Santa Cruz de Tenerife"];
-const ALL_PROVS = [...Object.keys(CENTROIDS), ...CANARIAS];
+// Use display names in the province selector
+const ALL_PROVS = [
+  "A Coruña","Lugo","Ourense","Pontevedra","Asturias","Cantabria","Vizcaya","Guipúzcoa",
+  "Álava","Navarra","La Rioja","Huesca","Zaragoza","Teruel","León","Zamora","Salamanca",
+  "Burgos","Valladolid","Palencia","Segovia","Ávila","Soria","Girona","Barcelona","Lleida",
+  "Tarragona","Castellón","Valencia","Alicante","Murcia","Guadalajara","Cuenca","Toledo",
+  "Ciudad Real","Albacete","Cáceres","Badajoz","Huelva","Sevilla","Córdoba","Jaén",
+  "Granada","Málaga","Cádiz","Almería","Madrid",
+  "Baleares",
+  "Las Palmas","Santa Cruz de Tenerife",
+  // Portugal
+  "Viana do Castelo","Braga","Vila Real","Bragança","Porto","Aveiro","Viseu","Guarda",
+  "Coimbra","Castelo Branco","Leiria","Santarém","Portalegre","Lisboa","Setúbal","Évora","Beja","Faro",
+  // Extra
+  "Andorra","Internacional",
+];
 
 const PC = { premium:"#1E3A8A", specialist:"#0891B2", prospect:"#78716C", none:"#E2E8F0" };
 
@@ -151,13 +205,16 @@ const SEED = {
 const NAME_MAP = {
   // es-atlas uses INE codes + NAME_1 in Spanish
   "A Coruña":"A Coruña","La Coruña":"A Coruña","Coruña":"A Coruña",
-  "Álava":"Álava","Alava":"Álava","Araba":"Álava",
-  "Albacete":"Albacete","Alicante":"Alicante","Almería":"Almería","Almeria":"Almería",
+  "Álava":"Álava","Alava":"Álava","Araba/Álava":"Álava","Araba":"Álava",
+  "Albacete":"Albacete",
+  "Alicante":"Alicante","Alacant/Alicante":"Alicante","Alicante/Alacant":"Alicante","Alacant":"Alicante",
+  "Almería":"Almería","Almeria":"Almería",
   "Asturias":"Asturias","Ávila":"Ávila","Avila":"Ávila","Badajoz":"Badajoz",
-  "Illes Balears":"Illes Balears","Baleares":"Illes Balears","Islas Baleares":"Illes Balears",
+  "Illes Balears":"Baleares","Baleares":"Baleares","Islas Baleares":"Baleares","Balears":"Baleares",
   "Barcelona":"Barcelona","Burgos":"Burgos","Cáceres":"Cáceres","Caceres":"Cáceres",
-  "Cádiz":"Cádiz","Cadiz":"Cádiz","Cantabria":"Cantabria","Castellón":"Castellón",
-  "Castellon":"Castellón","Ciudad Real":"Ciudad Real","Córdoba":"Córdoba","Cordoba":"Córdoba",
+  "Cádiz":"Cádiz","Cadiz":"Cádiz","Cantabria":"Cantabria",
+  "Castellón":"Castellón","Castellon":"Castellón","Castelló/Castellón":"Castellón","Castellón/Castelló":"Castellón","Castelló":"Castellón",
+  "Ciudad Real":"Ciudad Real","Córdoba":"Córdoba","Cordoba":"Córdoba",
   "Cuenca":"Cuenca","Girona":"Girona","Gerona":"Girona","Granada":"Granada",
   "Guadalajara":"Guadalajara","Guipúzcoa":"Guipúzcoa","Gipuzkoa":"Guipúzcoa","Guipuzcoa":"Guipúzcoa",
   "Huelva":"Huelva","Huesca":"Huesca","Jaén":"Jaén","Jaen":"Jaén","León":"León","Leon":"León",
@@ -166,7 +223,9 @@ const NAME_MAP = {
   "Orense":"Ourense","Palencia":"Palencia","Las Palmas":"Las Palmas","Pontevedra":"Pontevedra",
   "La Rioja":"La Rioja","Salamanca":"Salamanca","Santa Cruz de Tenerife":"Santa Cruz de Tenerife",
   "Segovia":"Segovia","Sevilla":"Sevilla","Soria":"Soria","Tarragona":"Tarragona",
-  "Teruel":"Teruel","Toledo":"Toledo","Valencia":"Valencia","Valladolid":"Valladolid",
+  "Teruel":"Teruel","Toledo":"Toledo",
+  "Valencia":"Valencia","València":"Valencia","València/Valencia":"Valencia","Valencia/València":"Valencia",
+  "Valladolid":"Valladolid",
   "Vizcaya":"Vizcaya","Bizkaia":"Vizcaya","Zamora":"Zamora","Zaragoza":"Zaragoza",
   // Portugal districts
   "Aveiro":"Aveiro","Beja":"Beja","Braga":"Braga","Bragança":"Bragança","Braganca":"Bragança",
@@ -174,15 +233,33 @@ const NAME_MAP = {
   "Faro":"Faro","Guarda":"Guarda","Leiria":"Leiria","Lisboa":"Lisboa","Portalegre":"Portalegre",
   "Porto":"Porto","Santarém":"Santarém","Santarem":"Santarém","Setúbal":"Setúbal","Setubal":"Setúbal",
   "Viana do Castelo":"Viana do Castelo","Vila Real":"Vila Real","Viseu":"Viseu",
+  // Andorra
+  "Andorra":"Andorra","Andorre":"Andorra",
 };
 function normName(raw) {
   if (!raw) return raw;
-  return NAME_MAP[raw] || NAME_MAP[raw.trim()] || raw;
+  // Normalize Unicode to NFC to handle combining accents from GeoJSON
+  const s = raw.normalize("NFC").trim();
+  return NAME_MAP[s] || NAME_MAP[raw.trim()] || s;
 }
+
+// Andorra GeoJSON centroid approx
+const ANDORRA_CENTROID = [1.5218, 42.5063];
+
+// Provinces list for territory selector — includes Internacional
+const SPAIN_PROVINCES = [
+  "A Coruña","Álava","Albacete","Alicante","Almería","Asturias","Ávila","Badajoz",
+  "Illes Balears","Barcelona","Burgos","Cáceres","Cádiz","Cantabria","Castellón",
+  "Ciudad Real","Córdoba","Cuenca","Girona","Granada","Guadalajara","Guipúzcoa",
+  "Huelva","Huesca","Jaén","León","Lleida","Lugo","Madrid","Málaga","Murcia",
+  "Navarra","Ourense","Palencia","Las Palmas","Pontevedra","La Rioja","Salamanca",
+  "Santa Cruz de Tenerife","Segovia","Sevilla","Soria","Tarragona","Teruel","Toledo",
+  "Valencia","Valladolid","Vizcaya","Zamora","Zaragoza","Andorra","Internacional",
+];
 
 // Province centroid fallbacks (for label placement when GeoJSON centroid is off)
 const LABEL_OVERRIDE = {
-  "Illes Balears": [2.92, 39.57],
+  "Baleares": [2.92, 39.57],
 };
 
 function IberianMap({ partners, prospects, selected, onSelect }) {
@@ -279,9 +356,9 @@ function IberianMap({ partners, prospects, selected, onSelect }) {
 
   const handleClick = (norm, e) => {
     e.stopPropagation();
+    if (tooltip?.norm === norm) { setTooltip(null); return; }
     const ps = provMap[norm] || [];
     if (!ps.length) { setTooltip(null); return; }
-    if (tooltip?.norm === norm) { setTooltip(null); return; }
     const rect = containerRef.current?.getBoundingClientRect();
     const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
     const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
@@ -314,6 +391,7 @@ function IberianMap({ partners, prospects, selected, onSelect }) {
     if (!d) return null;
     const [cx,cy] = LABEL_OVERRIDE[norm] ? projection(LABEL_OVERRIDE[norm]) : pathGen.centroid(f);
     const fill = getProvColor(norm);
+    const label = norm.length>11 ? norm.substring(0,10)+"." : norm;
     return (
       <g key={`${i}-${norm}`}
         onClick={(e) => handleClick(norm, e)}
@@ -331,7 +409,7 @@ function IberianMap({ partners, prospects, selected, onSelect }) {
             fill={ps.length ? "rgba(255,255,255,0.9)" : "#A8B4C0"}
             fontFamily="system-ui,sans-serif" fontWeight="600"
             style={{pointerEvents:"none",userSelect:"none"}}>
-            {norm.length>11 ? norm.substring(0,10)+"." : norm}
+            {label}
           </text>
         )}
       </g>
@@ -360,11 +438,32 @@ function IberianMap({ partners, prospects, selected, onSelect }) {
 
         {geoSpain && pathGen && geoSpain.map((f,i)=>{
           const norm = normName(f.properties?.name||f.properties?.NAME_2||f.properties?.NAME||"");
-          if (norm==="Las Palmas"||norm==="Santa Cruz de Tenerife") return null;
+          if (["Las Palmas","Santa Cruz de Tenerife","Ceuta","Melilla"].includes(norm)) return null;
           return renderFeature(f,i);
         })}
         {geoPortugal && pathGen && geoPortugal.map((f,i)=>renderFeature(f,`pt-${i}`))}
-      </svg>
+
+        {/* Andorra */}
+        {projection && (()=>{
+          const [ax,ay] = projection(ANDORRA_CENTROID);
+          const ps = provMap["Andorra"] || [];
+          const fill = DENSITY[Math.min(ps.length, DENSITY.length-1)];
+          const isSelected = selected && ps.some(p=>p.id===selected.id);
+          return (
+            <g style={{cursor:"pointer"}}
+              onClick={(e)=>{ e.stopPropagation(); handleClick("Andorra",e); }}>
+              <circle cx={ax} cy={ay} r={10}
+                fill={fill}
+                stroke={isSelected?"#FCD34D":"#fff"}
+                strokeWidth={isSelected?2:1}
+                style={{filter:tooltip?.norm==="Andorra"?"brightness(0.88)":"none"}}/>
+              <text x={ax} y={ay} textAnchor="middle" dominantBaseline="middle"
+                fontSize="5.5" fill={ps.length?"rgba(255,255,255,0.9)":"#A8B4C0"}
+                fontFamily="system-ui,sans-serif" fontWeight="700"
+                style={{pointerEvents:"none"}}>AND</text>
+            </g>
+          );
+        })()}      </svg>
 
       {/* Click tooltip */}
       {tooltip && (()=>{
@@ -689,6 +788,9 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   const [tab, setTab] = useState(isActive?"overview":"contacts");
   const [note, setNote] = useState("");
   const [author, setAuthor] = useState("");
+  const [updatePhoto, setUpdatePhoto] = useState(null);
+  const [editingUpdate, setEditingUpdate] = useState(null);
+  const [updateMenu, setUpdateMenu] = useState(null);
   const [editContact, setEditContact] = useState(null);
   const [showAddContact, setShowAddContact] = useState(false);
   const [contactForm, setContactForm] = useState({name:"",role:"",email:"",phone:""});
@@ -699,6 +801,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   const [infoForm, setInfoForm] = useState({
     name: entity.name||"", city: entity.city||"",
     address: entity.address||"", website: entity.website||"", cif: entity.cif||"",
+    since: entity.since||"",
   });
   const [kpiForm, setKpiForm] = useState({
     arr: entity.arr||0, accounts: entity.accounts||0, booking2026: entity.booking2026||0,
@@ -706,9 +809,8 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   const [infoSaved, setInfoSaved] = useState(false);
   const [kpiSaved, setKpiSaved] = useState(false);
 
-  // Reset forms if entity changes (e.g. after promote)
   useEffect(()=>{
-    setInfoForm({name:entity.name||"",city:entity.city||"",address:entity.address||"",website:entity.website||"",cif:entity.cif||""});
+    setInfoForm({name:entity.name||"",city:entity.city||"",address:entity.address||"",website:entity.website||"",cif:entity.cif||"",since:entity.since||""});
     setKpiForm({arr:entity.arr||0,accounts:entity.accounts||0,booking2026:entity.booking2026||0});
   },[entity.id]);
 
@@ -727,8 +829,10 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
 
   const addNote = () => {
     if (!note.trim() || !author) return;
-    onAddUpdate(entity.id,{id:"u"+Date.now(),date:new Date().toISOString().split("T")[0],author,text:note.trim()});
-    setNote("");
+    const today = new Date();
+    const date = `${today.getDate().toString().padStart(2,"0")}/${(today.getMonth()+1).toString().padStart(2,"0")}/${today.getFullYear()}`;
+    onAddUpdate(entity.id,{id:"u"+Date.now(),date,author,text:note.trim(),photo:updatePhoto||undefined});
+    setNote(""); setUpdatePhoto(null);
   };
 
   const saveContact = () => {
@@ -1062,6 +1166,16 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                         fontSize:14,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
                   </div>
                 ))}
+                {isActive && (
+                  <div>
+                    <label style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                      letterSpacing:"0.05em",display:"block",marginBottom:4}}>Partner desde</label>
+                    <input type="date" value={infoForm.since}
+                      onChange={e=>setInfoForm(fm=>({...fm,since:e.target.value}))}
+                      style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
+                        fontSize:14,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
+                  </div>
+                )}
               </div>
               <button onClick={saveInfo} style={{width:"100%",marginTop:12,
                 background: infoSaved?"#059669":hdr,color:"white",border:"none",
@@ -1135,7 +1249,31 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                 style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:10,
                   padding:"12px",fontSize:14,fontFamily:"system-ui,sans-serif",
                   resize:"none",boxSizing:"border-box",color:"#1E293B"}}/>
-              <div style={{display:"flex",gap:6,margin:"8px 0"}}>
+              {/* Photo preview */}
+              {updatePhoto && (
+                <div style={{marginTop:6,position:"relative",display:"inline-block"}}>
+                  <img src={updatePhoto} style={{maxWidth:"100%",maxHeight:120,borderRadius:8,
+                    border:"1px solid #E2E8F0",display:"block"}}/>
+                  <button onClick={()=>setUpdatePhoto(null)} style={{position:"absolute",top:4,right:4,
+                    background:"rgba(0,0,0,0.5)",color:"white",border:"none",borderRadius:"50%",
+                    width:20,height:20,cursor:"pointer",fontSize:12,lineHeight:"20px",textAlign:"center"}}>×</button>
+                </div>
+              )}
+              <div style={{display:"flex",alignItems:"center",gap:6,margin:"8px 0 6px"}}>
+                <label style={{background:"#F1F5F9",border:"1px solid #E2E8F0",borderRadius:7,
+                  padding:"5px 10px",fontSize:11,fontWeight:600,color:"#64748B",cursor:"pointer"}}>
+                  📎 Adjuntar imagen
+                  <input type="file" accept="image/*" style={{display:"none"}}
+                    onChange={e=>{
+                      const file=e.target.files[0]; if(!file) return;
+                      const reader=new FileReader();
+                      reader.onload=ev=>setUpdatePhoto(ev.target.result);
+                      reader.readAsDataURL(file);
+                      e.target.value="";
+                    }}/>
+                </label>
+              </div>
+              <div style={{display:"flex",gap:6,margin:"4px 0"}}>
                 <span style={{fontSize:11,color:"#94A3B8",fontWeight:600,
                   alignSelf:"center",marginRight:2}}>¿Quién?</span>
                 {["Toni","Gerard","Isabel"].map(name=>(
@@ -1161,18 +1299,82 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
               </button>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {[...(entity.updates||[])].reverse().map(u=>(
-                <div key={u.id} style={{background:"#F8FAFC",border:"1px solid #E2E8F0",
-                  borderRadius:10,padding:"14px"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",
-                    alignItems:"center",marginBottom:8}}>
-                    <span style={{fontSize:11,fontWeight:700,color:"#4F46E5",background:"#EEF2FF",
-                      padding:"2px 8px",borderRadius:8}}>{u.author}</span>
-                    <span style={{fontSize:11,color:"#94A3B8"}}>{u.date}</span>
+              {[...(entity.updates||[])].reverse().map(u=>{
+                const isEditing = editingUpdate?.id === u.id;
+                const showMenu = updateMenu === u.id;
+                return (
+                  <div key={u.id} style={{background:"#F8FAFC",border:"1px solid #E2E8F0",
+                    borderRadius:10,padding:"14px",position:"relative"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",
+                      alignItems:"center",marginBottom:8}}>
+                      <span style={{fontSize:11,fontWeight:700,color:"#4F46E5",background:"#EEF2FF",
+                        padding:"2px 8px",borderRadius:8}}>{u.author}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:11,color:"#94A3B8"}}>{u.date}</span>
+                        <div style={{position:"relative"}}>
+                          <button onClick={()=>setUpdateMenu(showMenu?null:u.id)}
+                            style={{background:"none",border:"none",cursor:"pointer",
+                              color:"#94A3B8",fontSize:16,lineHeight:1,padding:"0 2px"}}>⋯</button>
+                          {showMenu && (
+                            <div style={{position:"absolute",right:0,top:"100%",
+                              background:"white",border:"1px solid #E2E8F0",borderRadius:8,
+                              boxShadow:"0 4px 12px rgba(0,0,0,0.1)",zIndex:60,minWidth:110,overflow:"hidden"}}>
+                              <button onClick={()=>{setEditingUpdate({id:u.id,text:u.text});setUpdateMenu(null);}}
+                                style={{width:"100%",padding:"9px 14px",background:"none",border:"none",
+                                  cursor:"pointer",fontSize:12,textAlign:"left",color:"#374151"}}
+                                onMouseEnter={e=>e.currentTarget.style.background="#F8FAFC"}
+                                onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                                ✏️ Editar
+                              </button>
+                              <button onClick={()=>{
+                                onUpdate({...entity,updates:(entity.updates||[]).filter(x=>x.id!==u.id)});
+                                setUpdateMenu(null);
+                              }} style={{width:"100%",padding:"9px 14px",background:"none",border:"none",
+                                cursor:"pointer",fontSize:12,textAlign:"left",color:"#EF4444"}}
+                                onMouseEnter={e=>e.currentTarget.style.background="#FEF2F2"}
+                                onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                                🗑 Eliminar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {isEditing ? (
+                      <div>
+                        <textarea value={editingUpdate.text}
+                          onChange={e=>setEditingUpdate(eu=>({...eu,text:e.target.value}))}
+                          rows={3} style={{width:"100%",border:"1px solid #818CF8",borderRadius:8,
+                            padding:"8px 10px",fontSize:13,fontFamily:"system-ui,sans-serif",
+                            resize:"none",boxSizing:"border-box",color:"#1E293B"}}/>
+                        <div style={{display:"flex",gap:6,marginTop:6}}>
+                          <button onClick={()=>{
+                            onUpdate({...entity,updates:(entity.updates||[]).map(x=>x.id===u.id?{...x,text:editingUpdate.text}:x)});
+                            setEditingUpdate(null);
+                          }} style={{flex:1,background:"#4F46E5",color:"white",border:"none",
+                            borderRadius:6,padding:"7px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                            Guardar
+                          </button>
+                          <button onClick={()=>setEditingUpdate(null)}
+                            style={{flex:1,background:"#F1F5F9",color:"#64748B",border:"none",
+                              borderRadius:6,padding:"7px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <p style={{margin:0,fontSize:13,color:"#374151",lineHeight:1.6}}>{u.text}</p>
+                        {u.photo && (
+                          <img src={u.photo} style={{marginTop:8,maxWidth:"100%",borderRadius:8,
+                            border:"1px solid #E2E8F0",display:"block",cursor:"pointer"}}
+                            onClick={()=>window.open(u.photo,"_blank")}/>
+                        )}
+                      </>
+                    )}
                   </div>
-                  <p style={{margin:0,fontSize:13,color:"#374151",lineHeight:1.6}}>{u.text}</p>
-                </div>
-              ))}
+                );
+              })}
               {!(entity.updates||[]).length && (
                 <div style={{textAlign:"center",color:"#94A3B8",fontSize:13,padding:"24px 0"}}>Sin updates</div>
               )}
@@ -1213,7 +1415,111 @@ function EntityRow({ e, selected, onClick, isMobile }) {
 }
 
 // ── MAIN APP ───────────────────────────────────────────────────────────────
+// ── Login Screen ───────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showPw, setShowPw] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!username.trim() || !password) { setError("Introduce usuario y contraseña."); return; }
+    setLoading(true); setError("");
+    const user = await authLogin(username, password);
+    setLoading(false);
+    if (user) { onLogin(user); }
+    else { setError("Usuario o contraseña incorrectos."); }
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A 0%,#1E3A8A 60%,#1d4ed8 100%)",
+      display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"system-ui,sans-serif"}}>
+      <div style={{width:"100%",maxWidth:380,padding:"0 20px"}}>
+        {/* Logo / Brand */}
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
+            width:56,height:56,background:"rgba(255,255,255,0.12)",borderRadius:16,
+            backdropFilter:"blur(8px)",marginBottom:16,border:"1px solid rgba(255,255,255,0.2)"}}>
+            <span style={{fontSize:26}}>🗺</span>
+          </div>
+          <div style={{fontSize:22,fontWeight:800,color:"white",letterSpacing:"-0.02em"}}>PD Dashboard</div>
+          <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginTop:4}}>Canal de Distribución · Cegid Revo</div>
+        </div>
+
+        {/* Card */}
+        <div style={{background:"rgba(255,255,255,0.06)",backdropFilter:"blur(16px)",
+          border:"1px solid rgba(255,255,255,0.12)",borderRadius:20,padding:28}}>
+          <div style={{fontSize:15,fontWeight:700,color:"white",marginBottom:20}}>Acceder</div>
+
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",
+              textTransform:"uppercase",letterSpacing:"0.06em",display:"block",marginBottom:6}}>Usuario</label>
+            <input
+              value={username} onChange={e=>setUsername(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+              placeholder="tu.nombre"
+              autoComplete="username"
+              style={{width:"100%",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",
+                borderRadius:10,padding:"11px 14px",fontSize:14,color:"white",boxSizing:"border-box",
+                outline:"none",fontFamily:"system-ui,sans-serif"}}/>
+          </div>
+
+          <div style={{marginBottom:20,position:"relative"}}>
+            <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",
+              textTransform:"uppercase",letterSpacing:"0.06em",display:"block",marginBottom:6}}>Contraseña</label>
+            <input
+              type={showPw?"text":"password"}
+              value={password} onChange={e=>setPassword(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              style={{width:"100%",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",
+                borderRadius:10,padding:"11px 40px 11px 14px",fontSize:14,color:"white",boxSizing:"border-box",
+                outline:"none",fontFamily:"system-ui,sans-serif"}}/>
+            <button onClick={()=>setShowPw(v=>!v)}
+              style={{position:"absolute",right:12,top:34,background:"none",border:"none",
+                cursor:"pointer",color:"rgba(255,255,255,0.4)",fontSize:14,padding:0}}>
+              {showPw?"🙈":"👁"}
+            </button>
+          </div>
+
+          {error && (
+            <div style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",
+              borderRadius:8,padding:"9px 12px",fontSize:12,color:"#FCA5A5",marginBottom:14}}>
+              {error}
+            </div>
+          )}
+
+          <button onClick={handleSubmit} disabled={loading}
+            style={{width:"100%",background:loading?"rgba(255,255,255,0.1)":"#2563EB",
+              color:"white",border:"none",borderRadius:10,padding:"13px",fontSize:14,
+              fontWeight:700,cursor:loading?"default":"pointer",transition:"background 0.15s",
+              letterSpacing:"0.01em"}}>
+            {loading ? "Verificando…" : "Entrar →"}
+          </button>
+        </div>
+
+        <div style={{textAlign:"center",marginTop:20,fontSize:11,color:"rgba(255,255,255,0.25)"}}>
+          Acceso restringido · Cegid Revo Channel
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [session, setSession] = useState(()=>loadSession());
+
+  const handleLogin = (user) => { saveSession(user); setSession(user); };
+  const handleLogout = () => { clearSession(); setSession(null); };
+
+  if (!session) return <LoginScreen onLogin={handleLogin}/>;
+
+  return <AppInner session={session} onLogout={handleLogout}/>;
+}
+
+function AppInner({ session, onLogout }) {
   const isMobile = useIsMobile();
   const [data, setData] = useState(null);
   const [selected, setSelected] = useState(null);
@@ -1298,9 +1604,11 @@ export default function App() {
   const all=[...data.partners,...data.prospects];
   const filtered=all.filter(e=>{
     const ms=!search||e.name.toLowerCase().includes(search.toLowerCase())||(e.city||"").toLowerCase().includes(search.toLowerCase());
-    const mf=filter==="all"||e.type===filter
-      ||(filter==="premium"&&e.level==="premium")
-      ||(filter==="specialist"&&e.level==="specialist");
+    const mf=filter==="all"
+      ||(filter==="active"&&e.type==="active")
+      ||(filter==="premium"&&e.type==="active"&&e.level==="premium")
+      ||(filter==="specialist"&&e.type==="active"&&e.level==="specialist")
+      ||(filter==="prospect"&&e.type==="prospect");
     return ms&&mf;
   });
 
@@ -1326,6 +1634,11 @@ export default function App() {
             color:"white",border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,
             padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
             + Prospecto
+          </button>
+          <button onClick={onLogout} style={{background:"rgba(255,255,255,0.08)",
+            color:"rgba(255,255,255,0.5)",border:"1px solid rgba(255,255,255,0.15)",
+            borderRadius:8,padding:"6px 10px",fontSize:12,cursor:"pointer"}}>
+            ⏏
           </button>
         </div>
       </div>
@@ -1438,13 +1751,29 @@ export default function App() {
           padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
           + Prospecto
         </button>
+        <div style={{width:1,height:20,background:"rgba(255,255,255,0.15)"}}/>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:26,height:26,background:"rgba(255,255,255,0.15)",borderRadius:"50%",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:11,fontWeight:800,color:"white"}}>
+            {(session.display_name||session.username||"?")[0].toUpperCase()}
+          </div>
+          <span style={{fontSize:11,fontWeight:600,color:"rgba(255,255,255,0.7)"}}>
+            {session.display_name||session.username}
+          </span>
+          <button onClick={onLogout} style={{background:"rgba(255,255,255,0.08)",
+            color:"rgba(255,255,255,0.5)",border:"1px solid rgba(255,255,255,0.12)",
+            borderRadius:5,padding:"3px 8px",fontSize:10,fontWeight:600,cursor:"pointer"}}>
+            Salir
+          </button>
+        </div>
       </div>
 
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
         {/* Sidebar */}
-        <div style={{width:showMap?260:"100%",maxWidth:showMap?260:700,
-          background:"white",borderRight:"1px solid #E2E8F0",
-          display:"flex",flexDirection:"column",flexShrink:0,transition:"max-width 0.25s ease"}}>
+        <div style={{width:showMap?260:"100%",
+          background:"white",borderRight: showMap ? "1px solid #E2E8F0" : "none",
+          display:"flex",flexDirection:"column",flexShrink:0,transition:"width 0.25s ease",overflow:"hidden"}}>
           <div style={{padding:"10px 12px",borderBottom:"1px solid #F1F5F9"}}>
             <input value={search} onChange={e=>setSearch(e.target.value)}
               placeholder="Buscar…" style={{width:"100%",border:"1px solid #E2E8F0",
