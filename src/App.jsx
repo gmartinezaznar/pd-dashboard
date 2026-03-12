@@ -123,11 +123,17 @@ function levelColor(e) {
   return e.level === "premium" ? PC.premium : PC.specialist;
 }
 function levelBg(e) {
-  if (!e || e.type==="prospect") return "#FEF3C7";
+  if (!e || e.type==="prospect") {
+    if (e?.stage==="Parado") return "#FEE2E2";
+    return "#FEF3C7";
+  }
   return e.level==="premium" ? "#EEF2FF" : "#ECFEFF";
 }
 function levelText(e) {
-  if (!e || e.type==="prospect") return "#B45309";
+  if (!e || e.type==="prospect") {
+    if (e?.stage==="Parado") return "#DC2626";
+    return "#B45309";
+  }
   return e.level==="premium" ? "#3730A3" : "#0E7490";
 }
 function levelLabel(e) {
@@ -262,7 +268,7 @@ const LABEL_OVERRIDE = {
   "Baleares": [2.92, 39.57],
 };
 
-function IberianMap({ partners, prospects, selected, onSelect }) {
+function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const [geoSpain, setGeoSpain] = useState(null);
@@ -271,6 +277,7 @@ function IberianMap({ partners, prospects, selected, onSelect }) {
   const [error, setError] = useState(null);
   const [tooltip, setTooltip] = useState(null);
   const [dims, setDims] = useState({w:580, h:480});
+  const [geoHighlight, setGeoHighlight] = useState(null); // { province, label }
 
   // Responsive dims
   useEffect(()=>{
@@ -387,21 +394,28 @@ function IberianMap({ partners, prospects, selected, onSelect }) {
     const norm = normName(raw);
     const ps = provMap[norm] || [];
     const isSelected = selected && ps.some(p => p.id === selected.id);
+    const isHovered = hovered && (hovered.provinces||[]).includes(norm);
+    const isGeoHL = geoHighlight?.province === norm;
     const d = pathGen(f);
     if (!d) return null;
     const [cx,cy] = LABEL_OVERRIDE[norm] ? projection(LABEL_OVERRIDE[norm]) : pathGen.centroid(f);
     const fill = getProvColor(norm);
     const label = norm.length>11 ? norm.substring(0,10)+"." : norm;
+    const hasHighlight = selected || hovered || geoHighlight;
+    const isHighlighted = isSelected || isHovered || isGeoHL;
     return (
       <g key={`${i}-${norm}`}
         onClick={(e) => handleClick(norm, e)}
         style={{cursor: ps.length ? "pointer" : "default"}}>
         <path d={d}
-          fill={fill}
-          opacity={selected && !isSelected ? 0.5 : 1}
-          stroke={isSelected ? "#FCD34D" : "#fff"}
-          strokeWidth={isSelected ? 2 : 0.6}
-          style={{filter: tooltip?.norm===norm ? "brightness(0.88)" : "none", transition:"opacity 0.18s"}}
+          fill={isGeoHL ? "#FEF08A" : fill}
+          opacity={hasHighlight && !isHighlighted ? 0.35 : 1}
+          stroke={isSelected ? "#FCD34D" : isHovered ? "#FB923C" : isGeoHL ? "#EAB308" : "#fff"}
+          strokeWidth={isSelected ? 2 : isHovered ? 2 : isGeoHL ? 2.5 : 0.6}
+          style={{
+            filter: tooltip?.norm===norm ? "brightness(0.88)" : isHovered ? "brightness(1.15)" : "none",
+            transition:"opacity 0.15s, stroke 0.15s"
+          }}
         />
         {cx && cy && (
           <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
@@ -449,14 +463,17 @@ function IberianMap({ partners, prospects, selected, onSelect }) {
           const ps = provMap["Andorra"] || [];
           const fill = DENSITY[Math.min(ps.length, DENSITY.length-1)];
           const isSelected = selected && ps.some(p=>p.id===selected.id);
+          const isHovered = hovered && (hovered.provinces||[]).includes("Andorra");
+          const hasHighlight = selected || hovered;
           return (
             <g style={{cursor:"pointer"}}
               onClick={(e)=>{ e.stopPropagation(); handleClick("Andorra",e); }}>
               <circle cx={ax} cy={ay} r={10}
                 fill={fill}
-                stroke={isSelected?"#FCD34D":"#fff"}
-                strokeWidth={isSelected?2:1}
-                style={{filter:tooltip?.norm==="Andorra"?"brightness(0.88)":"none"}}/>
+                opacity={hasHighlight && !isSelected && !isHovered ? 0.35 : 1}
+                stroke={isSelected?"#FCD34D":isHovered?"#FB923C":"#fff"}
+                strokeWidth={isSelected||isHovered?2:1}
+                style={{filter:tooltip?.norm==="Andorra"?"brightness(0.88)":isHovered?"brightness(1.15)":"none",transition:"opacity 0.15s"}}/>
               <text x={ax} y={ay} textAnchor="middle" dominantBaseline="middle"
                 fontSize="5.5" fill={ps.length?"rgba(255,255,255,0.9)":"#A8B4C0"}
                 fontFamily="system-ui,sans-serif" fontWeight="700"
@@ -508,6 +525,9 @@ function IberianMap({ partners, prospects, selected, onSelect }) {
         geoSpain={geoSpain} pathGen={pathGen} normName={normName}
         densityColors={DENSITY}/>
 
+      {/* Locality search */}
+      <LocalitySearch normName={normName} onHighlight={setGeoHighlight}/>
+
       {/* Density legend */}
       <div style={{position:"absolute",top:10,left:10,background:"rgba(255,255,255,0.95)",
         border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 11px",
@@ -528,11 +548,107 @@ function IberianMap({ partners, prospects, selected, onSelect }) {
   );
 }
 
+// ── Locality search (Nominatim) ────────────────────────────────────────────
+function LocalitySearch({ normName, onHighlight }) {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState(null); // null | "searching" | { province, label } | "notfound"
+  const timerRef = useRef(null);
+
+  const search = async (q) => {
+    if (!q.trim()) { setStatus(null); onHighlight(null); return; }
+    setStatus("searching");
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q+", España")}&format=json&addressdetails=1&limit=5&accept-language=es`;
+      const res = await fetch(url, { headers:{"Accept-Language":"es"} });
+      const results = await res.json();
+      // Find best result with a province (state)
+      let found = null;
+      for (const r of results) {
+        const addr = r.address || {};
+        // Nominatim uses 'state' for comunidad autónoma and 'county'/'province' for provincia
+        const rawProv = addr.province || addr.county || addr.state_district || addr.state || "";
+        const norm = normName(rawProv);
+        if (norm && norm !== rawProv.trim() || Object.values(NAME_MAP).includes(normName(rawProv))) {
+          found = { province: normName(rawProv), label: addr.city||addr.town||addr.village||addr.municipality||q };
+          break;
+        }
+        // Try matching directly
+        const direct = normName(rawProv);
+        if (direct) {
+          found = { province: direct, label: addr.city||addr.town||addr.village||addr.municipality||q };
+          break;
+        }
+      }
+      if (found && found.province) {
+        setStatus(found);
+        onHighlight(found);
+      } else {
+        setStatus("notfound");
+        onHighlight(null);
+      }
+    } catch {
+      setStatus("notfound");
+      onHighlight(null);
+    }
+  };
+
+  const handleChange = (val) => {
+    setQuery(val);
+    clearTimeout(timerRef.current);
+    if (!val.trim()) { setStatus(null); onHighlight(null); return; }
+    timerRef.current = setTimeout(()=>search(val), 600);
+  };
+
+  const clear = () => { setQuery(""); setStatus(null); onHighlight(null); };
+
+  return (
+    <div style={{position:"absolute",top:10,right:10,zIndex:20,
+      fontFamily:"system-ui,sans-serif",width:200}}>
+      <div style={{position:"relative"}}>
+        <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",
+          fontSize:12,color:"#94A3B8",pointerEvents:"none"}}>🔍</span>
+        <input
+          value={query}
+          onChange={e=>handleChange(e.target.value)}
+          placeholder="Buscar localidad…"
+          style={{width:"100%",boxSizing:"border-box",
+            background:"rgba(255,255,255,0.97)",border:"1px solid #CBD5E1",
+            borderRadius:8,padding:"7px 28px 7px 28px",fontSize:11,
+            fontFamily:"system-ui,sans-serif",color:"#1E293B",
+            boxShadow:"0 2px 8px rgba(0,0,0,0.08)",outline:"none"}}/>
+        {query && (
+          <button onClick={clear} style={{position:"absolute",right:8,top:"50%",
+            transform:"translateY(-50%)",background:"none",border:"none",
+            cursor:"pointer",color:"#94A3B8",fontSize:14,padding:0,lineHeight:1}}>×</button>
+        )}
+      </div>
+      {status === "searching" && (
+        <div style={{marginTop:4,background:"white",border:"1px solid #E2E8F0",
+          borderRadius:7,padding:"6px 10px",fontSize:11,color:"#94A3B8",
+          boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>Buscando…</div>
+      )}
+      {status === "notfound" && (
+        <div style={{marginTop:4,background:"white",border:"1px solid #E2E8F0",
+          borderRadius:7,padding:"6px 10px",fontSize:11,color:"#EF4444",
+          boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>Localidad no encontrada</div>
+      )}
+      {status && status.province && (
+        <div style={{marginTop:4,background:"white",border:"1px solid #BBF7D0",
+          borderRadius:7,padding:"6px 10px",fontSize:11,color:"#065F46",
+          boxShadow:"0 2px 8px rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:13}}>📍</span>
+          <span><strong>{status.label}</strong> → {status.province}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Canarias inset ─────────────────────────────────────────────────────────
 function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selected, densityColors }) {
   const [hovered, setHovered] = useState(null);
   const [sharedPopup, setSharedPopup] = useState(null);
-  const W=140, H=70;
+  const W=200, H=100;
   const getColor = (norm) => densityColors[Math.min((provMap[norm]||[]).length, densityColors.length-1)];
 
   const canFeatures = geoSpain ? geoSpain.filter(f=>{
@@ -715,7 +831,7 @@ function NewModal({ type, onClose, onSave }) {
                 <select value={form.stage} onChange={e=>setForm(f=>({...f,stage:e.target.value}))}
                   style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
                     fontSize:14,fontFamily:"system-ui,sans-serif",color:"#1E293B"}}>
-                  {["Primer contacto","Negociación","Propuesta enviada","Contrato pendiente"].map(s=>
+                  {["Primer contacto","Negociación","Propuesta enviada","Contrato pendiente","Parado"].map(s=>
                     <option key={s}>{s}</option>)}
                 </select>
               </div>
@@ -781,6 +897,44 @@ function DeleteButton({ entity, onDelete }) {
   );
 }
 
+// ── PDF Attachment ──────────────────────────────────────────────────────────
+function PdfAttachment({ pdf }) {
+  const [preview, setPreview] = useState(false);
+  const download = () => {
+    const a = document.createElement("a");
+    a.href = pdf.data;
+    a.download = pdf.name;
+    a.click();
+  };
+  return (
+    <div style={{marginTop:8}}>
+      <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:8,
+        padding:"8px 12px",display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:18,flexShrink:0}}>📄</span>
+        <span style={{fontSize:12,color:"#374151",fontWeight:600,flex:1,
+          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pdf.name}</span>
+        <button onClick={()=>setPreview(p=>!p)}
+          style={{background:"#EEF2FF",border:"none",borderRadius:6,padding:"4px 9px",
+            fontSize:11,fontWeight:600,color:"#4F46E5",cursor:"pointer",flexShrink:0}}>
+          {preview ? "Cerrar" : "Preview"}
+        </button>
+        <button onClick={download}
+          style={{background:"#F1F5F9",border:"none",borderRadius:6,padding:"4px 9px",
+            fontSize:11,fontWeight:600,color:"#374151",cursor:"pointer",flexShrink:0}}>
+          ⬇ Descargar
+        </button>
+      </div>
+      {preview && (
+        <div style={{marginTop:4,border:"1px solid #E2E8F0",borderRadius:8,overflow:"hidden",
+          background:"#F8FAFC"}}>
+          <iframe src={pdf.data} title={pdf.name}
+            style={{width:"100%",height:380,border:"none",display:"block"}}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Detail Panel — shared desktop/mobile ───────────────────────────────────
 function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDelete, isMobile }) {
   const isActive = entity.type==="active";
@@ -789,6 +943,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   const [note, setNote] = useState("");
   const [author, setAuthor] = useState("");
   const [updatePhoto, setUpdatePhoto] = useState(null);
+  const [updatePdf, setUpdatePdf] = useState(null); // { name, data (base64) }
   const [editingUpdate, setEditingUpdate] = useState(null);
   const [updateMenu, setUpdateMenu] = useState(null);
   const [editContact, setEditContact] = useState(null);
@@ -823,16 +978,27 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
     setKpiSaved(true); setTimeout(()=>setKpiSaved(false),2000);
   };
 
+  const [showEditModal, setShowEditModal] = useState(false);
+
   const tabs = isActive
-    ? [{id:"overview",l:"Resumen"},{id:"contacts",l:"Contactos"},{id:"info",l:"Info"},{id:"updates",l:"Updates"}]
-    : [{id:"contacts",l:"Contactos"},{id:"info",l:"Info"},{id:"updates",l:"Updates"}];
+    ? [{id:"overview",l:"Resumen"},{id:"contacts",l:"Contactos"},{id:"updates",l:"Updates"}]
+    : [{id:"contacts",l:"Contactos"},{id:"updates",l:"Updates"}];
+
+  const [reminderDate, setReminderDate]   = useState("");
+  const [reminderTime, setReminderTime]   = useState("");
+  const [reminderUser, setReminderUser]   = useState("");
+  const [showReminder, setShowReminder]   = useState(false);
 
   const addNote = () => {
     if (!note.trim() || !author) return;
     const today = new Date();
     const date = `${today.getDate().toString().padStart(2,"0")}/${(today.getMonth()+1).toString().padStart(2,"0")}/${today.getFullYear()}`;
-    onAddUpdate(entity.id,{id:"u"+Date.now(),date,author,text:note.trim(),photo:updatePhoto||undefined});
-    setNote(""); setUpdatePhoto(null);
+    const reminder = showReminder && reminderDate
+      ? { date: reminderDate, time: reminderTime||"09:00", user: reminderUser||author, done: false }
+      : undefined;
+    onAddUpdate(entity.id,{id:"u"+Date.now(),date,author,text:note.trim(),photo:updatePhoto||undefined,pdf:updatePdf||undefined,reminder});
+    setNote(""); setUpdatePhoto(null); setUpdatePdf(null);
+    setShowReminder(false); setReminderDate(""); setReminderTime(""); setReminderUser("");
   };
 
   const saveContact = () => {
@@ -882,7 +1048,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
               <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
                 {(isActive
                   ? [{v:"premium",l:"Premium"},{v:"specialist",l:"Specialist"}]
-                  : ["Primer contacto","Negociación","Propuesta enviada","Contrato pendiente"].map(s=>({v:s,l:s}))
+                  : ["Primer contacto","Negociación","Propuesta enviada","Contrato pendiente","Parado"].map(s=>({v:s,l:s}))
                 ).map(opt=>(
                   <button key={opt.v} onClick={()=>{
                     onUpdate({...entity, ...(isActive?{level:opt.v}:{stage:opt.v})});
@@ -930,12 +1096,19 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
               )}
             </div>
           </div>
-          <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",
-            color:"white",width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:18,
-            display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
-            marginLeft:8}}>
-            {isMobile?"←":"×"}
-          </button>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0,marginLeft:8}}>
+            <button onClick={()=>setShowEditModal(true)} style={{
+              background:"rgba(255,255,255,0.18)",border:"1px solid rgba(255,255,255,0.35)",
+              color:"white",borderRadius:8,padding:"5px 11px",fontSize:11,fontWeight:700,
+              cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+              ✏️ Editar
+            </button>
+            <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",
+              color:"white",width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:18,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {isMobile?"←":"×"}
+            </button>
+          </div>
         </div>
         <div style={{display:"flex",gap:2,overflowX:"auto"}}>
           {tabs.map(t=>(
@@ -953,10 +1126,147 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px":"18px 20px"}}>
         {showPromote && <PromoteModal entity={entity} onClose={()=>setShowPromote(false)} onPromote={onPromote}/>}
 
+        {/* EDIT MODAL */}
+        {showEditModal && (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:300,
+            display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+            <div style={{background:"white",borderRadius:14,width:"100%",maxWidth:440,
+              maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,0.18)",
+              fontFamily:"system-ui,sans-serif"}}>
+              <div style={{padding:"18px 20px",borderBottom:"1px solid #E2E8F0",
+                display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:15,fontWeight:800,color:"#1E293B"}}>Editar {entity.name}</div>
+                <button onClick={()=>setShowEditModal(false)} style={{background:"#F1F5F9",
+                  border:"none",borderRadius:"50%",width:30,height:30,cursor:"pointer",
+                  fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",color:"#64748B"}}>×</button>
+              </div>
+              <div style={{padding:"18px 20px"}}>
+                {/* Logo */}
+                <div style={{marginBottom:16}}>
+                  <label style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                    letterSpacing:"0.05em",display:"block",marginBottom:6}}>Logo</label>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    {entity.logo
+                      ? <img src={entity.logo} style={{width:48,height:48,borderRadius:8,
+                          objectFit:"contain",border:"1px solid #E2E8F0",background:"#F8FAFC",padding:4}}/>
+                      : <div style={{width:48,height:48,borderRadius:8,background:"#F1F5F9",
+                          border:"1px dashed #CBD5E1",display:"flex",alignItems:"center",
+                          justifyContent:"center",fontSize:20,color:"#94A3B8"}}>🏢</div>
+                    }
+                    <div>
+                      <label style={{background:"#EEF2FF",color:"#4F46E5",border:"none",borderRadius:6,
+                        padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",display:"block"}}>
+                        {entity.logo ? "Cambiar logo" : "Subir logo"}
+                        <input type="file" accept="image/*" style={{display:"none"}}
+                          onChange={e=>{
+                            const file=e.target.files[0]; if(!file) return;
+                            const reader=new FileReader();
+                            reader.onload=ev=>onUpdate({...entity,logo:ev.target.result});
+                            reader.readAsDataURL(file);
+                          }}/>
+                      </label>
+                      {entity.logo && (
+                        <button onClick={()=>onUpdate({...entity,logo:null})}
+                          style={{background:"none",border:"none",color:"#94A3B8",fontSize:11,
+                            cursor:"pointer",marginTop:4,padding:0}}>Eliminar logo</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {/* Info fields */}
+                <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",
+                  letterSpacing:"0.06em",marginBottom:10}}>Datos generales</div>
+                <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+                  {[
+                    {key:"name",   label:"Nombre empresa", ph:"Nombre legal"},
+                    {key:"city",   label:"Ciudad",         ph:"Ciudad principal"},
+                    {key:"address",label:"Dirección",      ph:"Calle, número, CP"},
+                    {key:"cif",    label:"CIF / NIF",      ph:"B12345678"},
+                    {key:"website",label:"Web",            ph:"https://"},
+                  ].map(f=>(
+                    <div key={f.key}>
+                      <label style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                        letterSpacing:"0.05em",display:"block",marginBottom:4}}>{f.label}</label>
+                      <input value={infoForm[f.key]} onChange={e=>setInfoForm(fm=>({...fm,[f.key]:e.target.value}))}
+                        placeholder={f.ph}
+                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
+                          fontSize:13,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
+                    </div>
+                  ))}
+                  {isActive && (
+                    <div>
+                      <label style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                        letterSpacing:"0.05em",display:"block",marginBottom:4}}>Partner desde</label>
+                      <input type="date" value={infoForm.since}
+                        onChange={e=>setInfoForm(fm=>({...fm,since:e.target.value}))}
+                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
+                          fontSize:13,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
+                    </div>
+                  )}
+                </div>
+                <button onClick={()=>{saveInfo();setShowEditModal(false);}} style={{width:"100%",
+                  background:hdr,color:"white",border:"none",borderRadius:8,
+                  padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                  Guardar información
+                </button>
+
+                {/* KPIs */}
+                {isActive && (
+                  <div style={{marginTop:20}}>
+                    <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",
+                      letterSpacing:"0.06em",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      KPIs
+                      <span style={{fontSize:10,color:"#94A3B8",fontStyle:"italic",fontWeight:400,textTransform:"none"}}>Edición manual</span>
+                    </div>
+                    <div style={{display:"flex",alignItems:"flex-start",gap:6,background:"#FFFBEB",
+                      border:"1px solid #FDE68A",borderRadius:7,padding:"8px 10px",marginBottom:10}}>
+                      <span style={{fontSize:13,flexShrink:0}}>⚡</span>
+                      <span style={{fontSize:11,color:"#92400E",lineHeight:1.4}}>
+                        Estos datos idealmente se sincronizarán automáticamente desde la fuente de datos de Cegid.
+                        Hasta entonces, puedes editarlos manualmente.
+                      </span>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      {[
+                        {key:"arr",        label:"ARR 2025 (€)",       ph:"0"},
+                        {key:"accounts",   label:"Nº clientes activos", ph:"0"},
+                        {key:"booking2026",label:"Booking 2026 (€)",    ph:"0"},
+                      ].map(f=>(
+                        <div key={f.key}>
+                          <label style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                            letterSpacing:"0.05em",display:"block",marginBottom:4}}>{f.label}</label>
+                          <input type="number" value={kpiForm[f.key]}
+                            onChange={e=>setKpiForm(fm=>({...fm,[f.key]:e.target.value}))}
+                            placeholder={f.ph}
+                            style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
+                              fontSize:13,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={()=>{saveKpis();setShowEditModal(false);}} style={{width:"100%",marginTop:12,
+                      background:"#475569",color:"white",border:"none",borderRadius:8,
+                      padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                      Guardar KPIs
+                    </button>
+                  </div>
+                )}
+
+                {/* Danger zone */}
+                <div style={{marginTop:24,borderTop:"1px solid #FEE2E2",paddingTop:16}}>
+                  <div style={{fontSize:11,fontWeight:800,color:"#DC2626",textTransform:"uppercase",
+                    letterSpacing:"0.06em",marginBottom:10}}>Zona de peligro</div>
+                  {onDelete && <DeleteButton entity={entity} onDelete={()=>{onDelete(entity.id);onClose();}}/>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* OVERVIEW */}
         {tab==="overview" && isActive && (
           <div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
+            {/* KPI cards */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
               {[
                 {label:"ARR 2025",value:"€"+Math.round(entity.arr/1000)+"k",color:hdr},
                 {label:"Clientes",value:entity.accounts,color:hdr},
@@ -970,6 +1280,39 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                 </div>
               ))}
             </div>
+
+            {/* Company info block — read only */}
+            <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:10,
+              padding:"14px",marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",
+                letterSpacing:"0.05em",marginBottom:10}}>Información</div>
+              <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                {[
+                  {icon:"📍", label:"Ciudad",   val:entity.city},
+                  {icon:"📅", label:"Desde",    val:entity.since ? new Date(entity.since).getFullYear() : null},
+                  {icon:"🔑", label:"CIF",      val:entity.cif},
+                  {icon:"🏠", label:"Dirección",val:entity.address},
+                  {icon:"🌐", label:"Web",      val:entity.website, isLink:true},
+                ].filter(r=>r.val).map(r=>(
+                  <div key={r.label} style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:12}}>
+                    <span style={{fontSize:13,flexShrink:0,marginTop:1}}>{r.icon}</span>
+                    <span style={{color:"#94A3B8",fontWeight:600,flexShrink:0,width:60}}>{r.label}</span>
+                    {r.isLink
+                      ? <a href={entity.website} target="_blank" rel="noreferrer"
+                          style={{color:"#2563EB",textDecoration:"none",wordBreak:"break-all"}}>
+                          {entity.website}
+                        </a>
+                      : <span style={{color:"#1E293B"}}>{r.val}</span>
+                    }
+                  </div>
+                ))}
+                {!entity.city && !entity.cif && !entity.website && !entity.address && !entity.since && (
+                  <span style={{fontSize:12,color:"#94A3B8"}}>Sin información. Usa ✏️ Editar para añadir.</span>
+                )}
+              </div>
+            </div>
+
+            {/* Territories */}
             <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:10,padding:"14px"}}>
               <div style={{fontSize:11,fontWeight:700,color:"#475569",textTransform:"uppercase",
                 letterSpacing:"0.05em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1106,140 +1449,6 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
           </div>
         )}
 
-        {/* INFO */}
-        {tab==="info" && (
-          <div>
-            {/* General info */}
-            <div style={{marginBottom:16}}>
-              <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",
-                letterSpacing:"0.06em",marginBottom:12}}>Datos generales</div>
-
-              {/* Logo upload */}
-              <div style={{marginBottom:12}}>
-                <label style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",
-                  letterSpacing:"0.05em",display:"block",marginBottom:6}}>Logo</label>
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  {entity.logo
-                    ? <img src={entity.logo} style={{width:48,height:48,borderRadius:8,
-                        objectFit:"contain",border:"1px solid #E2E8F0",background:"#F8FAFC",padding:4}}/>
-                    : <div style={{width:48,height:48,borderRadius:8,background:"#F1F5F9",
-                        border:"1px dashed #CBD5E1",display:"flex",alignItems:"center",
-                        justifyContent:"center",fontSize:20,color:"#94A3B8"}}>🏢</div>
-                  }
-                  <div>
-                    <label style={{background:"#EEF2FF",color:"#4F46E5",border:"none",borderRadius:6,
-                      padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",display:"block"}}>
-                      {entity.logo ? "Cambiar logo" : "Subir logo"}
-                      <input type="file" accept="image/*" style={{display:"none"}}
-                        onChange={e=>{
-                          const file = e.target.files[0];
-                          if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = ev => onUpdate({...entity, logo: ev.target.result});
-                          reader.readAsDataURL(file);
-                        }}/>
-                    </label>
-                    {entity.logo && (
-                      <button onClick={()=>onUpdate({...entity,logo:null})}
-                        style={{background:"none",border:"none",color:"#94A3B8",fontSize:11,
-                          cursor:"pointer",marginTop:4,padding:0}}>
-                        Eliminar logo
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                {[
-                  {key:"name",   label:"Nombre empresa", ph:"Nombre legal"},
-                  {key:"city",   label:"Ciudad",         ph:"Ciudad principal"},
-                  {key:"address",label:"Dirección",      ph:"Calle, número, CP"},
-                  {key:"cif",    label:"CIF / NIF",      ph:"B12345678"},
-                  {key:"website",label:"Web",            ph:"https://"},
-                ].map(f=>(
-                  <div key={f.key}>
-                    <label style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",
-                      letterSpacing:"0.05em",display:"block",marginBottom:4}}>{f.label}</label>
-                    <input value={infoForm[f.key]} onChange={e=>setInfoForm(fm=>({...fm,[f.key]:e.target.value}))}
-                      placeholder={f.ph}
-                      style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
-                        fontSize:14,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
-                  </div>
-                ))}
-                {isActive && (
-                  <div>
-                    <label style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",
-                      letterSpacing:"0.05em",display:"block",marginBottom:4}}>Partner desde</label>
-                    <input type="date" value={infoForm.since}
-                      onChange={e=>setInfoForm(fm=>({...fm,since:e.target.value}))}
-                      style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
-                        fontSize:14,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
-                  </div>
-                )}
-              </div>
-              <button onClick={saveInfo} style={{width:"100%",marginTop:12,
-                background: infoSaved?"#059669":hdr,color:"white",border:"none",
-                borderRadius:8,padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer",
-                transition:"background 0.3s"}}>
-                {infoSaved ? "✓ Guardado" : "Guardar información"}
-              </button>
-            </div>
-
-            {/* KPIs — manual override */}
-            {isActive && (
-              <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:10,padding:"14px"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                  <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                    KPIs
-                  </div>
-                  <span style={{fontSize:10,color:"#94A3B8",fontStyle:"italic"}}>Edición manual</span>
-                </div>
-                {/* Data source notice */}
-                <div style={{display:"flex",alignItems:"flex-start",gap:6,background:"#FFFBEB",
-                  border:"1px solid #FDE68A",borderRadius:7,padding:"8px 10px",marginBottom:12}}>
-                  <span style={{fontSize:13,flexShrink:0}}>⚡</span>
-                  <span style={{fontSize:11,color:"#92400E",lineHeight:1.4}}>
-                    Estos datos idealmente se sincronizarán automáticamente desde la fuente de datos de Cegid.
-                    Hasta entonces, puedes editarlos manualmente.
-                  </span>
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                  {[
-                    {key:"arr",        label:"ARR 2025 (€)",      ph:"0"},
-                    {key:"accounts",   label:"Nº clientes activos",ph:"0"},
-                    {key:"booking2026",label:"Booking 2026 (€)",   ph:"0"},
-                  ].map(f=>(
-                    <div key={f.key}>
-                      <label style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",
-                        letterSpacing:"0.05em",display:"block",marginBottom:4}}>{f.label}</label>
-                      <input type="number" value={kpiForm[f.key]}
-                        onChange={e=>setKpiForm(fm=>({...fm,[f.key]:e.target.value}))}
-                        placeholder={f.ph}
-                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
-                          fontSize:14,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
-                    </div>
-                  ))}
-                </div>
-                <button onClick={saveKpis} style={{width:"100%",marginTop:12,
-                  background: kpiSaved?"#059669":"#475569",color:"white",border:"none",
-                  borderRadius:8,padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer",
-                  transition:"background 0.3s"}}>
-                  {kpiSaved ? "✓ Guardado" : "Guardar KPIs"}
-                </button>
-              </div>
-            )}
-
-            {/* Danger zone */}
-            <div style={{marginTop:24,borderTop:"1px solid #FEE2E2",paddingTop:16}}>
-              <div style={{fontSize:11,fontWeight:800,color:"#DC2626",textTransform:"uppercase",
-                letterSpacing:"0.06em",marginBottom:10}}>Zona de peligro</div>
-              {!onDelete ? null : (
-                <DeleteButton entity={entity} onDelete={()=>{ onDelete(entity.id); onClose(); }}/>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* UPDATES */}
         {tab==="updates" && (
           <div>
@@ -1259,15 +1468,38 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                     width:20,height:20,cursor:"pointer",fontSize:12,lineHeight:"20px",textAlign:"center"}}>×</button>
                 </div>
               )}
+              {/* PDF preview */}
+              {updatePdf && (
+                <div style={{marginTop:6,background:"#F8FAFC",border:"1px solid #E2E8F0",
+                  borderRadius:8,padding:"8px 12px",display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:18}}>📄</span>
+                  <span style={{fontSize:12,color:"#374151",fontWeight:600,flex:1,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{updatePdf.name}</span>
+                  <button onClick={()=>setUpdatePdf(null)} style={{background:"none",border:"none",
+                    color:"#94A3B8",fontSize:16,cursor:"pointer",padding:0,lineHeight:1}}>×</button>
+                </div>
+              )}
               <div style={{display:"flex",alignItems:"center",gap:6,margin:"8px 0 6px"}}>
                 <label style={{background:"#F1F5F9",border:"1px solid #E2E8F0",borderRadius:7,
                   padding:"5px 10px",fontSize:11,fontWeight:600,color:"#64748B",cursor:"pointer"}}>
-                  📎 Adjuntar imagen
+                  🖼 Imagen
                   <input type="file" accept="image/*" style={{display:"none"}}
                     onChange={e=>{
                       const file=e.target.files[0]; if(!file) return;
                       const reader=new FileReader();
                       reader.onload=ev=>setUpdatePhoto(ev.target.result);
+                      reader.readAsDataURL(file);
+                      e.target.value="";
+                    }}/>
+                </label>
+                <label style={{background:"#F1F5F9",border:"1px solid #E2E8F0",borderRadius:7,
+                  padding:"5px 10px",fontSize:11,fontWeight:600,color:"#64748B",cursor:"pointer"}}>
+                  📄 PDF
+                  <input type="file" accept="application/pdf" style={{display:"none"}}
+                    onChange={e=>{
+                      const file=e.target.files[0]; if(!file) return;
+                      const reader=new FileReader();
+                      reader.onload=ev=>setUpdatePdf({name:file.name,data:ev.target.result});
                       reader.readAsDataURL(file);
                       e.target.value="";
                     }}/>
@@ -1286,6 +1518,65 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                     {name}
                   </button>
                 ))}
+              </div>
+
+              {/* Reminder toggle */}
+              <div style={{marginTop:6}}>
+                <button onClick={()=>setShowReminder(r=>!r)} style={{
+                  background:showReminder?"#FEF9C3":"#F8FAFC",
+                  border:`1px solid ${showReminder?"#FDE047":"#E2E8F0"}`,
+                  borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:600,
+                  color:showReminder?"#92400E":"#64748B",cursor:"pointer",
+                  display:"flex",alignItems:"center",gap:5}}>
+                  🔔 {showReminder?"Quitar recordatorio":"Añadir recordatorio"}
+                </button>
+                {showReminder && (
+                  <div style={{marginTop:8,background:"#FFFBEB",border:"1px solid #FDE68A",
+                    borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                    <div style={{display:"flex",gap:8}}>
+                      <div style={{flex:1}}>
+                        <label style={{fontSize:10,fontWeight:700,color:"#92400E",
+                          textTransform:"uppercase",letterSpacing:"0.05em",display:"block",marginBottom:3}}>
+                          Día
+                        </label>
+                        <input type="date" value={reminderDate}
+                          onChange={e=>setReminderDate(e.target.value)}
+                          style={{width:"100%",border:"1px solid #FDE68A",borderRadius:6,
+                            padding:"7px 8px",fontSize:12,boxSizing:"border-box",
+                            fontFamily:"system-ui,sans-serif",background:"white"}}/>
+                      </div>
+                      <div style={{flex:1}}>
+                        <label style={{fontSize:10,fontWeight:700,color:"#92400E",
+                          textTransform:"uppercase",letterSpacing:"0.05em",display:"block",marginBottom:3}}>
+                          Hora
+                        </label>
+                        <input type="time" value={reminderTime}
+                          onChange={e=>setReminderTime(e.target.value)}
+                          style={{width:"100%",border:"1px solid #FDE68A",borderRadius:6,
+                            padding:"7px 8px",fontSize:12,boxSizing:"border-box",
+                            fontFamily:"system-ui,sans-serif",background:"white"}}/>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{fontSize:10,fontWeight:700,color:"#92400E",
+                        textTransform:"uppercase",letterSpacing:"0.05em",display:"block",marginBottom:3}}>
+                        Para
+                      </label>
+                      <div style={{display:"flex",gap:5}}>
+                        {["Toni","Gerard","Isabel"].map(name=>(
+                          <button key={name} onClick={()=>setReminderUser(reminderUser===name?"":name)}
+                            style={{flex:1,padding:"5px 0",borderRadius:6,fontSize:11,fontWeight:700,
+                              cursor:"pointer",
+                              border: reminderUser===name ? "none" : "1px solid #FDE68A",
+                              background: reminderUser===name ? "#92400E" : "white",
+                              color: reminderUser===name ? "white" : "#92400E"}}>
+                            {name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               <button onClick={addNote}
                 disabled={!note.trim() || !author}
@@ -1365,11 +1656,33 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                     ) : (
                       <>
                         <p style={{margin:0,fontSize:13,color:"#374151",lineHeight:1.6}}>{u.text}</p>
+                        {u.reminder && (
+                          <div style={{marginTop:8,background:u.reminder.done?"#F0FDF4":"#FFFBEB",
+                            border:`1px solid ${u.reminder.done?"#BBF7D0":"#FDE68A"}`,
+                            borderRadius:7,padding:"7px 10px",display:"flex",
+                            alignItems:"center",gap:7}}>
+                            <span style={{fontSize:13}}>{u.reminder.done?"✅":"🔔"}</span>
+                            <div style={{flex:1,fontSize:11,color:u.reminder.done?"#166534":"#92400E",lineHeight:1.4}}>
+                              <strong>{u.reminder.user}</strong>
+                              {" · "}{u.reminder.date.split("-").reverse().join("/")}
+                              {u.reminder.time && ` a las ${u.reminder.time}`}
+                            </div>
+                            {!u.reminder.done && (
+                              <button onClick={()=>onUpdate({...entity,updates:(entity.updates||[]).map(x=>
+                                x.id===u.id?{...x,reminder:{...x.reminder,done:true}}:x
+                              )})} style={{background:"#059669",color:"white",border:"none",
+                                borderRadius:5,padding:"3px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                                Hecho
+                              </button>
+                            )}
+                          </div>
+                        )}
                         {u.photo && (
                           <img src={u.photo} style={{marginTop:8,maxWidth:"100%",borderRadius:8,
                             border:"1px solid #E2E8F0",display:"block",cursor:"pointer"}}
                             onClick={()=>window.open(u.photo,"_blank")}/>
                         )}
+                        {u.pdf && <PdfAttachment pdf={u.pdf}/>}
                       </>
                     )}
                   </div>
@@ -1387,9 +1700,12 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
 }
 
 // ── Entity row (sidebar compact) ───────────────────────────────────────────
-function EntityRow({ e, selected, onClick, isMobile }) {
+function EntityRow({ e, selected, onClick, onHover, isMobile }) {
   return (
-    <div onClick={onClick} style={{
+    <div onClick={onClick}
+      onMouseEnter={()=>onHover&&onHover(e)}
+      onMouseLeave={()=>onHover&&onHover(null)}
+      style={{
       padding:isMobile?"14px 16px":"9px 12px",
       borderBottom:"1px solid #F1F5F9",cursor:"pointer",
       background:selected?"#EEF2FF":"white",
@@ -1523,9 +1839,12 @@ function AppInner({ session, onLogout }) {
   const isMobile = useIsMobile();
   const [data, setData] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [hovered, setHovered] = useState(null);
   const [modal, setModal] = useState(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [sort, setSort] = useState("arr");
+  const [showRemindersPanel, setShowRemindersPanel] = useState(false);
   const [showMap, setShowMap] = useState(true);
   const [syncState, setSyncState] = useState("idle"); // idle | saving | saved | error
   const saveTimer = useRef(null);
@@ -1610,12 +1929,23 @@ function AppInner({ session, onLogout }) {
       ||(filter==="specialist"&&e.type==="active"&&e.level==="specialist")
       ||(filter==="prospect"&&e.type==="prospect");
     return ms&&mf;
+  }).sort((a,b)=>{
+    if (sort==="arr")  return (b.arr||0)-(a.arr||0);
+    if (sort==="az")   return a.name.localeCompare(b.name,"es");
+    if (sort==="za")   return b.name.localeCompare(a.name,"es");
+    return 0;
   });
 
   const premCount=data.partners.filter(p=>p.level==="premium").length;
   const spCount=data.partners.filter(p=>p.level==="specialist").length;
   const prCount=data.prospects.length;
   const totalArr=data.partners.reduce((s,p)=>s+(p.arr||0),0);
+
+  const pendingReminders = [...data.partners,...data.prospects].flatMap(e=>
+    (e.updates||[])
+      .filter(u=>u.reminder && !u.reminder.done)
+      .map(u=>({...u.reminder, updateId:u.id, entityId:e.id, entityName:e.name, updateText:u.text}))
+  ).sort((a,b)=>a.date>b.date?1:-1);
 
   // ── MOBILE LAYOUT ──────────────────────────────────────────────────────
   if(isMobile) return (
@@ -1664,17 +1994,25 @@ function AppInner({ session, onLogout }) {
           style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:10,
             padding:"10px 14px",fontSize:14,boxSizing:"border-box",
             fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
-        <div style={{display:"flex",gap:6,marginTop:10,overflowX:"auto",paddingBottom:2}}>
-          {[{id:"all",l:"Todos"},{id:"active",l:"Activos"},{id:"premium",l:"Premium"},
-            {id:"specialist",l:"Specialist"},{id:"prospect",l:"Prospectos"}].map(f=>(
-            <button key={f.id} onClick={()=>setFilter(f.id)} style={{
-              background:filter===f.id?"#1E3A8A":"#F1F5F9",
-              color:filter===f.id?"white":"#64748B",
-              border:"none",borderRadius:20,padding:"5px 14px",
-              fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-              {f.l}
-            </button>
-          ))}
+        <div style={{display:"flex",gap:8,marginTop:10}}>
+          <select value={filter} onChange={e=>setFilter(e.target.value)} style={{
+            flex:1,border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 10px",
+            fontSize:13,fontFamily:"system-ui,sans-serif",color:"#374151",
+            background:"white",cursor:"pointer",outline:"none"}}>
+            <option value="all">Todos</option>
+            <option value="active">Activos</option>
+            <option value="premium">Premium</option>
+            <option value="specialist">Specialist</option>
+            <option value="prospect">Prospectos</option>
+          </select>
+          <select value={sort} onChange={e=>setSort(e.target.value)} style={{
+            flex:1,border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 10px",
+            fontSize:13,fontFamily:"system-ui,sans-serif",color:"#374151",
+            background:"white",cursor:"pointer",outline:"none"}}>
+            <option value="arr">Mayor ARR</option>
+            <option value="az">A → Z</option>
+            <option value="za">Z → A</option>
+          </select>
         </div>
       </div>
 
@@ -1742,6 +2080,21 @@ function AppInner({ session, onLogout }) {
           borderRadius:5,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
           🗺 {showMap?"Ocultar mapa":"Ver mapa"}
         </button>
+        {/* Bell */}
+        <button onClick={()=>setShowRemindersPanel(r=>!r)} style={{
+          position:"relative",background: pendingReminders.length?"#FEF9C3":"rgba(255,255,255,0.12)",
+          border: pendingReminders.length?"1px solid #FDE047":"1px solid rgba(255,255,255,0.25)",
+          borderRadius:5,padding:"5px 10px",fontSize:14,cursor:"pointer",
+          display:"flex",alignItems:"center",gap:4}}>
+          🔔
+          {pendingReminders.length>0 && (
+            <span style={{background:"#EF4444",color:"white",borderRadius:"50%",
+              fontSize:9,fontWeight:800,width:15,height:15,display:"flex",
+              alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              {pendingReminders.length}
+            </span>
+          )}
+        </button>
         <button onClick={()=>setModal("active")} style={{background:"white",color:"#1E3A8A",
           border:"none",borderRadius:5,padding:"5px 12px",fontSize:11,fontWeight:800,cursor:"pointer"}}>
           + Distribuidor
@@ -1769,6 +2122,76 @@ function AppInner({ session, onLogout }) {
         </div>
       </div>
 
+      </div>
+
+      {/* Reminders panel */}
+      {showRemindersPanel && (
+        <div style={{position:"fixed",top:50,right:20,zIndex:200,
+          background:"white",border:"1px solid #E2E8F0",borderRadius:12,
+          boxShadow:"0 8px 32px rgba(0,0,0,0.14)",width:360,maxHeight:"70vh",
+          display:"flex",flexDirection:"column",fontFamily:"system-ui,sans-serif"}}>
+          <div style={{padding:"14px 16px",borderBottom:"1px solid #E2E8F0",
+            display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:13,fontWeight:800,color:"#1E293B",display:"flex",alignItems:"center",gap:6}}>
+              🔔 Recordatorios pendientes
+              {pendingReminders.length>0 && (
+                <span style={{background:"#EF4444",color:"white",borderRadius:10,
+                  fontSize:10,fontWeight:800,padding:"1px 7px"}}>{pendingReminders.length}</span>
+              )}
+            </div>
+            <button onClick={()=>setShowRemindersPanel(false)} style={{background:"#F1F5F9",
+              border:"none",borderRadius:"50%",width:26,height:26,cursor:"pointer",
+              fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",color:"#64748B"}}>×</button>
+          </div>
+          <div style={{overflowY:"auto",flex:1}}>
+            {pendingReminders.length===0 ? (
+              <div style={{padding:"32px 16px",textAlign:"center",color:"#94A3B8",fontSize:13}}>
+                No hay recordatorios pendientes 🎉
+              </div>
+            ) : pendingReminders.map((r,i)=>{
+              const isOverdue = r.date < new Date().toISOString().slice(0,10);
+              return (
+                <div key={i} style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",
+                  background:isOverdue?"#FEF2F2":"white"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:11,fontWeight:800,color:isOverdue?"#DC2626":"#92400E",
+                        display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
+                        <span>{isOverdue?"⚠️":"🔔"}</span>
+                        <span>{r.date.split("-").reverse().join("/")}
+                          {r.time && ` · ${r.time}`}
+                          {" · "}<span style={{color:"#4F46E5"}}>{r.user}</span>
+                        </span>
+                      </div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#1E293B",marginBottom:2}}>
+                        {r.entityName}
+                      </div>
+                      <div style={{fontSize:11,color:"#64748B",lineHeight:1.4,
+                        overflow:"hidden",textOverflow:"ellipsis",
+                        display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
+                        {r.updateText}
+                      </div>
+                    </div>
+                    <button onClick={()=>{
+                      const entity = [...data.partners,...data.prospects].find(e=>e.id===r.entityId);
+                      if (!entity) return;
+                      const updated = {...entity, updates:(entity.updates||[]).map(u=>
+                        u.id===r.updateId ? {...u,reminder:{...u.reminder,done:true}} : u
+                      )};
+                      updateEntity(updated);
+                    }} style={{background:"#059669",color:"white",border:"none",
+                      borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,
+                      cursor:"pointer",flexShrink:0}}>
+                      Hecho
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
         {/* Sidebar */}
         <div style={{width:showMap?260:"100%",
@@ -1779,17 +2202,25 @@ function AppInner({ session, onLogout }) {
               placeholder="Buscar…" style={{width:"100%",border:"1px solid #E2E8F0",
                 borderRadius:6,padding:"6px 10px",fontSize:12,boxSizing:"border-box",
                 fontFamily:"system-ui,sans-serif"}}/>
-            <div style={{display:"flex",gap:3,marginTop:8,flexWrap:"wrap"}}>
-              {[{id:"all",l:"Todos"},{id:"active",l:"Activos"},{id:"premium",l:"Premium"},
-                {id:"specialist",l:"Specialist"},{id:"prospect",l:"Prospectos"}].map(f=>(
-                <button key={f.id} onClick={()=>setFilter(f.id)} style={{
-                  background:filter===f.id?"#1E3A8A":"#F1F5F9",
-                  color:filter===f.id?"white":"#64748B",
-                  border:"none",borderRadius:10,padding:"2px 8px",
-                  fontSize:9,fontWeight:700,cursor:"pointer"}}>
-                  {f.l}
-                </button>
-              ))}
+            <div style={{display:"flex",gap:6,marginTop:8}}>
+              <select value={filter} onChange={e=>setFilter(e.target.value)} style={{
+                flex:1,border:"1px solid #E2E8F0",borderRadius:6,padding:"5px 6px",
+                fontSize:11,fontFamily:"system-ui,sans-serif",color:"#374151",
+                background:"white",cursor:"pointer",outline:"none"}}>
+                <option value="all">Todos</option>
+                <option value="active">Activos</option>
+                <option value="premium">Premium</option>
+                <option value="specialist">Specialist</option>
+                <option value="prospect">Prospectos</option>
+              </select>
+              <select value={sort} onChange={e=>setSort(e.target.value)} style={{
+                flex:1,border:"1px solid #E2E8F0",borderRadius:6,padding:"5px 6px",
+                fontSize:11,fontFamily:"system-ui,sans-serif",color:"#374151",
+                background:"white",cursor:"pointer",outline:"none"}}>
+                <option value="arr">Mayor ARR</option>
+                <option value="az">A → Z</option>
+                <option value="za">Z → A</option>
+              </select>
             </div>
           </div>
           <div style={{flex:1,overflowY:"auto"}}>
@@ -1842,7 +2273,7 @@ function AppInner({ session, onLogout }) {
               <>
                 {filtered.map(e=>(
                   <EntityRow key={e.id} e={e} selected={selected?.id===e.id}
-                    onClick={()=>setSelected(e)} isMobile={false}/>
+                    onClick={()=>setSelected(e)} onHover={setHovered} isMobile={false}/>
                 ))}
                 {!filtered.length && (
                   <div style={{padding:20,textAlign:"center",color:"#94A3B8",fontSize:11}}>Sin resultados</div>
@@ -1857,7 +2288,7 @@ function AppInner({ session, onLogout }) {
           <div style={{flex:1,overflow:"hidden"}}>
             <div style={{width:"100%",height:"100%",padding:12,boxSizing:"border-box"}}>
               <IberianMap partners={data.partners} prospects={data.prospects}
-                selected={selected} onSelect={setSelected}/>
+                selected={selected} onSelect={setSelected} hovered={hovered}/>
             </div>
           </div>
         )}
