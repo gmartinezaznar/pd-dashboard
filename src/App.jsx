@@ -2122,8 +2122,6 @@ function AppInner({ session, onLogout }) {
         </div>
       </div>
 
-      </div>
-
       {/* Reminders panel */}
       {showRemindersPanel && (
         <div style={{position:"fixed",top:50,right:20,zIndex:200,
