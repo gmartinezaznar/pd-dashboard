@@ -413,7 +413,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
         <path d={d}
           fill={activeFill}
           opacity={hasHighlight && !isHighlighted ? 0.25 : 1}
-          stroke="#fff"
+          stroke="rgba(255,255,255,0.4)"
           strokeWidth={0.6}
           style={{transition:"opacity 0.15s, fill 0.15s",
             filter: tooltip?.norm===norm ? "brightness(0.88)" : "none"}}
@@ -421,11 +421,10 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
         {cx && cy && (
           <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
             fontSize={norm.length>9?"6":"7"}
-            fill={isHighlighted ? "rgba(255,255,255,1)" : ps.length ? "rgba(255,255,255,0.9)" : "#A8B4C0"}
+            fill="rgba(255,255,255,0.92)"
             fontFamily="system-ui,sans-serif"
-            fontWeight={isHighlighted ? "800" : "600"}
-            style={{pointerEvents:"none",userSelect:"none",
-              textShadow: isHighlighted ? "0 1px 2px rgba(0,0,0,0.5)" : "none"}}>
+            fontWeight={isHighlighted ? "700" : "600"}
+            style={{pointerEvents:"none",userSelect:"none"}}>
             {label}
           </text>
         )}
