@@ -409,11 +409,11 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
         style={{cursor: ps.length ? "pointer" : "default"}}>
         <path d={d}
           fill={isGeoHL ? "#FEF08A" : fill}
-          opacity={hasHighlight && !isHighlighted ? 0.35 : 1}
-          stroke={isSelected ? "#FCD34D" : isHovered ? "#FB923C" : isGeoHL ? "#EAB308" : "#fff"}
-          strokeWidth={isSelected ? 2 : isHovered ? 2 : isGeoHL ? 2.5 : 0.6}
+          opacity={hasHighlight && !isHighlighted ? 0.25 : 1}
+          stroke={isSelected ? "#FCD34D" : isHovered ? "#EA580C" : isGeoHL ? "#EAB308" : "#fff"}
+          strokeWidth={isSelected ? 2 : isHovered ? 2.5 : isGeoHL ? 2.5 : 0.6}
           style={{
-            filter: tooltip?.norm===norm ? "brightness(0.88)" : isHovered ? "brightness(1.15)" : "none",
+            filter: tooltip?.norm===norm ? "brightness(0.88)" : isHovered ? "brightness(1.05)" : "none",
             transition:"opacity 0.15s, stroke 0.15s"
           }}
         />
@@ -470,10 +470,10 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
               onClick={(e)=>{ e.stopPropagation(); handleClick("Andorra",e); }}>
               <circle cx={ax} cy={ay} r={10}
                 fill={fill}
-                opacity={hasHighlight && !isSelected && !isHovered ? 0.35 : 1}
-                stroke={isSelected?"#FCD34D":isHovered?"#FB923C":"#fff"}
-                strokeWidth={isSelected||isHovered?2:1}
-                style={{filter:tooltip?.norm==="Andorra"?"brightness(0.88)":isHovered?"brightness(1.15)":"none",transition:"opacity 0.15s"}}/>
+                opacity={hasHighlight && !isSelected && !isHovered ? 0.25 : 1}
+                stroke={isSelected?"#FCD34D":isHovered?"#EA580C":"#fff"}
+                strokeWidth={isSelected||isHovered?2.5:1}
+                style={{filter:tooltip?.norm==="Andorra"?"brightness(0.88)":"none",transition:"opacity 0.15s"}}/>
               <text x={ax} y={ay} textAnchor="middle" dominantBaseline="middle"
                 fontSize="5.5" fill={ps.length?"rgba(255,255,255,0.9)":"#A8B4C0"}
                 fontFamily="system-ui,sans-serif" fontWeight="700"
@@ -548,72 +548,128 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
   );
 }
 
-// ── Locality search (Nominatim) ────────────────────────────────────────────
+// ── Province extraction from Nominatim result ─────────────────────────────
+const COMMUNITY_TO_PROVINCE = {
+  "Comunidad de Madrid": "Madrid",
+  "Community of Madrid": "Madrid",
+  "Madrid": "Madrid",
+  "Andorra": "Andorra",
+  "Andorre": "Andorra",
+  "Principat d'Andorra": "Andorra",
+  "Principado de Andorra": "Andorra",
+};
+
+function extractProvince(addr, normNameFn) {
+  // Try direct province field first
+  const candidates = [
+    addr.province,
+    addr.county,
+    addr.state_district,
+    addr.state,
+    addr.country,
+  ].filter(Boolean);
+
+  for (const raw of candidates) {
+    // Check explicit overrides first (Madrid, Andorra)
+    if (COMMUNITY_TO_PROVINCE[raw]) return COMMUNITY_TO_PROVINCE[raw];
+    const norm = normNameFn(raw);
+    if (norm && ALL_PROVS.includes(norm)) return norm;
+  }
+  return null;
+}
+
+// ── Locality search (Nominatim autocomplete) ───────────────────────────────
 function LocalitySearch({ normName, onHighlight }) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState(null); // null | "searching" | { province, label } | "notfound"
+  const [suggestions, setSuggestions] = useState([]); // [{label, province, display}]
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState(null); // chosen result
+  const [open, setOpen] = useState(false);
   const timerRef = useRef(null);
+  const wrapRef = useRef(null);
 
-  const search = async (q) => {
-    if (!q.trim()) { setStatus(null); onHighlight(null); return; }
-    setStatus("searching");
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const fn = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
+  }, []);
+
+  const fetchSuggestions = async (q) => {
+    if (q.trim().length < 2) { setSuggestions([]); setOpen(false); return; }
+    setSearching(true);
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q+", España")}&format=json&addressdetails=1&limit=5&accept-language=es`;
-      const res = await fetch(url, { headers:{"Accept-Language":"es"} });
+      // Search Spain + Andorra, no appending ", España" to allow Andorra results
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=10&countrycodes=es,ad&accept-language=es`;
+      const res = await fetch(url, { headers: { "Accept-Language": "es" } });
       const results = await res.json();
-      // Find best result with a province (state)
-      let found = null;
+
+      // Filter: only keep results whose display name contains the query letters
+      const qLower = q.toLowerCase();
+      const seen = new Set();
+      const items = [];
       for (const r of results) {
         const addr = r.address || {};
-        // Nominatim uses 'state' for comunidad autónoma and 'county'/'province' for provincia
-        const rawProv = addr.province || addr.county || addr.state_district || addr.state || "";
-        const norm = normName(rawProv);
-        if (norm && norm !== rawProv.trim() || Object.values(NAME_MAP).includes(normName(rawProv))) {
-          found = { province: normName(rawProv), label: addr.city||addr.town||addr.village||addr.municipality||q };
-          break;
-        }
-        // Try matching directly
-        const direct = normName(rawProv);
-        if (direct) {
-          found = { province: direct, label: addr.city||addr.town||addr.village||addr.municipality||q };
-          break;
-        }
+        const locality = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.hamlet || "";
+        const province = extractProvince(addr, normName);
+        if (!province) continue;
+        // Filter out results where locality doesn't contain query substring
+        if (locality && !locality.toLowerCase().includes(qLower) &&
+            !province.toLowerCase().includes(qLower)) continue;
+        const key = `${locality}-${province}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push({ locality, province, display: locality ? `${locality} (${province})` : province });
+        if (items.length >= 6) break;
       }
-      if (found && found.province) {
-        setStatus(found);
-        onHighlight(found);
-      } else {
-        setStatus("notfound");
-        onHighlight(null);
-      }
+      setSuggestions(items);
+      setOpen(items.length > 0);
     } catch {
-      setStatus("notfound");
-      onHighlight(null);
+      setSuggestions([]);
+    } finally {
+      setSearching(false);
     }
   };
 
   const handleChange = (val) => {
     setQuery(val);
+    setSelected(null);
+    onHighlight(null);
     clearTimeout(timerRef.current);
-    if (!val.trim()) { setStatus(null); onHighlight(null); return; }
-    timerRef.current = setTimeout(()=>search(val), 600);
+    if (!val.trim()) { setSuggestions([]); setOpen(false); return; }
+    timerRef.current = setTimeout(() => fetchSuggestions(val), 350);
   };
 
-  const clear = () => { setQuery(""); setStatus(null); onHighlight(null); };
+  const choose = (item) => {
+    setQuery(item.display);
+    setSelected(item);
+    onHighlight({ province: item.province, label: item.locality || item.province });
+    setOpen(false);
+    setSuggestions([]);
+  };
+
+  const clear = () => {
+    setQuery(""); setSelected(null); setSuggestions([]);
+    setOpen(false); onHighlight(null);
+  };
 
   return (
-    <div style={{position:"absolute",top:10,right:10,zIndex:20,
-      fontFamily:"system-ui,sans-serif",width:200}}>
+    <div ref={wrapRef} style={{position:"absolute",top:10,right:10,zIndex:30,
+      fontFamily:"system-ui,sans-serif",width:220}}>
       <div style={{position:"relative"}}>
         <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",
-          fontSize:12,color:"#94A3B8",pointerEvents:"none"}}>🔍</span>
+          fontSize:12,color:"#94A3B8",pointerEvents:"none"}}>
+          {searching ? "⟳" : "🔍"}
+        </span>
         <input
           value={query}
           onChange={e=>handleChange(e.target.value)}
+          onFocus={()=>suggestions.length>0&&setOpen(true)}
           placeholder="Buscar localidad…"
           style={{width:"100%",boxSizing:"border-box",
             background:"rgba(255,255,255,0.97)",border:"1px solid #CBD5E1",
-            borderRadius:8,padding:"7px 28px 7px 28px",fontSize:11,
+            borderRadius:open&&suggestions.length?"8px 8px 0 0":"8px",
+            padding:"7px 28px 7px 28px",fontSize:11,
             fontFamily:"system-ui,sans-serif",color:"#1E293B",
             boxShadow:"0 2px 8px rgba(0,0,0,0.08)",outline:"none"}}/>
         {query && (
@@ -622,22 +678,34 @@ function LocalitySearch({ normName, onHighlight }) {
             cursor:"pointer",color:"#94A3B8",fontSize:14,padding:0,lineHeight:1}}>×</button>
         )}
       </div>
-      {status === "searching" && (
-        <div style={{marginTop:4,background:"white",border:"1px solid #E2E8F0",
-          borderRadius:7,padding:"6px 10px",fontSize:11,color:"#94A3B8",
-          boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>Buscando…</div>
+
+      {/* Dropdown suggestions */}
+      {open && suggestions.length>0 && (
+        <div style={{background:"white",border:"1px solid #CBD5E1",borderTop:"none",
+          borderRadius:"0 0 8px 8px",boxShadow:"0 4px 12px rgba(0,0,0,0.1)",
+          maxHeight:180,overflowY:"auto"}}>
+          {suggestions.map((item,i)=>(
+            <div key={i} onClick={()=>choose(item)}
+              style={{padding:"7px 10px",fontSize:11,cursor:"pointer",
+                borderBottom: i<suggestions.length-1?"1px solid #F1F5F9":"none",
+                display:"flex",alignItems:"center",gap:6}}
+              onMouseEnter={e=>e.currentTarget.style.background="#F0F7FF"}
+              onMouseLeave={e=>e.currentTarget.style.background="white"}>
+              <span style={{fontSize:12,flexShrink:0}}>📍</span>
+              <span style={{color:"#1E293B",fontWeight:500}}>{item.locality}</span>
+              <span style={{color:"#94A3B8",marginLeft:"auto",flexShrink:0}}>{item.province}</span>
+            </div>
+          ))}
+        </div>
       )}
-      {status === "notfound" && (
-        <div style={{marginTop:4,background:"white",border:"1px solid #E2E8F0",
-          borderRadius:7,padding:"6px 10px",fontSize:11,color:"#EF4444",
-          boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>Localidad no encontrada</div>
-      )}
-      {status && status.province && (
+
+      {/* Selected result pill */}
+      {selected && (
         <div style={{marginTop:4,background:"white",border:"1px solid #BBF7D0",
-          borderRadius:7,padding:"6px 10px",fontSize:11,color:"#065F46",
-          boxShadow:"0 2px 8px rgba(0,0,0,0.08)",display:"flex",alignItems:"center",gap:6}}>
-          <span style={{fontSize:13}}>📍</span>
-          <span><strong>{status.label}</strong> → {status.province}</span>
+          borderRadius:7,padding:"5px 10px",fontSize:11,color:"#065F46",
+          boxShadow:"0 2px 6px rgba(0,0,0,0.06)",display:"flex",alignItems:"center",gap:5}}>
+          <span>📍</span>
+          <span><strong>{selected.locality||selected.province}</strong> → {selected.province}</span>
         </div>
       )}
     </div>
@@ -935,6 +1003,38 @@ function PdfAttachment({ pdf }) {
   );
 }
 
+// ── Image Lightbox ─────────────────────────────────────────────────────────
+function ImageLightbox({ src, onClose }) {
+  const download = () => {
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = "imagen-update.jpg";
+    a.click();
+  };
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",
+      zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",
+      flexDirection:"column",gap:12,padding:20}}>
+      <div style={{display:"flex",gap:8,alignSelf:"flex-end",marginBottom:4}}>
+        <button onClick={e=>{e.stopPropagation();download();}}
+          style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",
+            color:"white",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,
+            cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+          ⬇ Descargar
+        </button>
+        <button onClick={onClose}
+          style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",
+            color:"white",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+          × Cerrar
+        </button>
+      </div>
+      <img src={src} onClick={e=>e.stopPropagation()}
+        style={{maxWidth:"100%",maxHeight:"80vh",borderRadius:10,
+          boxShadow:"0 8px 40px rgba(0,0,0,0.5)",objectFit:"contain"}}/>
+    </div>
+  );
+}
+
 // ── Detail Panel — shared desktop/mobile ───────────────────────────────────
 function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDelete, isMobile }) {
   const isActive = entity.type==="active";
@@ -979,6 +1079,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   };
 
   const [showEditModal, setShowEditModal] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState(null);
 
   const tabs = isActive
     ? [{id:"overview",l:"Resumen"},{id:"contacts",l:"Contactos"},{id:"updates",l:"Updates"}]
@@ -1026,19 +1127,20 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
         fontSize:14,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
   );
 
-  // Mobile: full-screen slide-up. Desktop: fixed right panel.
+  // Mobile: full-screen. Desktop: fills the sidebar column (not fixed).
   const panelStyle = isMobile ? {
     position:"fixed",inset:0,background:"white",zIndex:200,
     display:"flex",flexDirection:"column",fontFamily:"system-ui,sans-serif",
     overflowY:"auto"
   } : {
-    position:"fixed",top:0,right:0,bottom:0,width:460,background:"white",
-    boxShadow:"-8px 0 40px rgba(0,0,0,0.12)",zIndex:100,
-    display:"flex",flexDirection:"column",fontFamily:"system-ui,sans-serif"
+    flex:1,background:"white",
+    display:"flex",flexDirection:"column",fontFamily:"system-ui,sans-serif",
+    height:"100%",overflow:"hidden"
   };
 
   return (
     <div style={panelStyle}>
+      {lightboxPhoto && <ImageLightbox src={lightboxPhoto} onClose={()=>setLightboxPhoto(null)}/>}
       {/* Header */}
       <div style={{background:hdr,padding:isMobile?"16px 16px 0":"18px 20px 0",flexShrink:0}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -1679,8 +1781,8 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                         )}
                         {u.photo && (
                           <img src={u.photo} style={{marginTop:8,maxWidth:"100%",borderRadius:8,
-                            border:"1px solid #E2E8F0",display:"block",cursor:"pointer"}}
-                            onClick={()=>window.open(u.photo,"_blank")}/>
+                            border:"1px solid #E2E8F0",display:"block",cursor:"zoom-in"}}
+                            onClick={()=>setLightboxPhoto(u.photo)}/>
                         )}
                         {u.pdf && <PdfAttachment pdf={u.pdf}/>}
                       </>
@@ -2191,11 +2293,17 @@ function AppInner({ session, onLogout }) {
       )}
 
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
-        {/* Sidebar */}
-        <div style={{width:showMap?260:"100%",
-          background:"white",borderRight: showMap ? "1px solid #E2E8F0" : "none",
-          display:"flex",flexDirection:"column",flexShrink:0,transition:"width 0.25s ease",overflow:"hidden"}}>
-          <div style={{padding:"10px 12px",borderBottom:"1px solid #F1F5F9"}}>
+        {/* Sidebar + Detail panel column */}
+        <div style={{
+          width: showMap ? (selected ? 460 : 260) : "100%",
+          display:"flex",flexDirection:"column",flexShrink:0,
+          borderRight: showMap ? "1px solid #E2E8F0" : "none",
+          transition:"width 0.25s ease",overflow:"hidden"}}>
+
+          {/* List sidebar — hidden when detail panel open and map is visible */}
+          {(!selected || !showMap) && (
+          <div style={{display:"flex",flexDirection:"column",height:"100%",background:"white"}}>
+          <div style={{padding:"10px 12px",borderBottom:"1px solid #F1F5F9",flexShrink:0}}>
             <input value={search} onChange={e=>setSearch(e.target.value)}
               placeholder="Buscar…" style={{width:"100%",border:"1px solid #E2E8F0",
                 borderRadius:6,padding:"6px 10px",fontSize:12,boxSizing:"border-box",
@@ -2279,6 +2387,15 @@ function AppInner({ session, onLogout }) {
               </>
             )}
           </div>
+          </div>
+          )}
+
+          {/* Detail panel — inline in sidebar column when map is visible */}
+          {selected && showMap && (
+            <DetailPanel entity={selected} onClose={()=>setSelected(null)}
+              onUpdate={updateEntity} onAddUpdate={addUpdate}
+              onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
+          )}
         </div>
 
         {/* Map */}
@@ -2292,7 +2409,8 @@ function AppInner({ session, onLogout }) {
         )}
       </div>
 
-      {selected && (
+      {/* Detail panel — floating only when map is hidden */}
+      {selected && !showMap && (
         <DetailPanel entity={selected} onClose={()=>setSelected(null)}
           onUpdate={updateEntity} onAddUpdate={addUpdate}
           onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
