@@ -410,19 +410,21 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
         <path d={d}
           fill={isGeoHL ? "#FEF08A" : fill}
           opacity={hasHighlight && !isHighlighted ? 0.25 : 1}
-          stroke={isSelected ? "#FCD34D" : isHovered ? "#EA580C" : isGeoHL ? "#EAB308" : "#fff"}
-          strokeWidth={isSelected ? 2 : isHovered ? 2.5 : isGeoHL ? 2.5 : 0.6}
+          stroke="#fff"
+          strokeWidth={0.6}
           style={{
-            filter: tooltip?.norm===norm ? "brightness(0.88)" : isHovered ? "brightness(1.05)" : "none",
-            transition:"opacity 0.15s, stroke 0.15s"
+            filter: tooltip?.norm===norm ? "brightness(0.88)" : isHovered ? "brightness(1.35) saturate(1.4)" : isSelected ? "brightness(1.2) saturate(1.2)" : "none",
+            transition:"opacity 0.15s, filter 0.15s"
           }}
         />
         {cx && cy && (
           <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
             fontSize={norm.length>9?"6":"7"}
-            fill={ps.length ? "rgba(255,255,255,0.9)" : "#A8B4C0"}
-            fontFamily="system-ui,sans-serif" fontWeight="600"
-            style={{pointerEvents:"none",userSelect:"none"}}>
+            fill={(isHovered||isSelected) ? "rgba(255,255,255,1)" : ps.length ? "rgba(255,255,255,0.9)" : "#A8B4C0"}
+            fontFamily="system-ui,sans-serif"
+            fontWeight={(isHovered||isSelected) ? "800" : "600"}
+            style={{pointerEvents:"none",userSelect:"none",
+              textShadow:(isHovered||isSelected)?"0 1px 3px rgba(0,0,0,0.6)":"none"}}>
             {label}
           </text>
         )}
@@ -457,6 +459,52 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
         })}
         {geoPortugal && pathGen && geoPortugal.map((f,i)=>renderFeature(f,`pt-${i}`))}
 
+        {/* Unified exterior border for hovered/selected partner — clipPath technique */}
+        {pathGen && (()=>{
+          const activeEntities = [];
+          if (hovered) activeEntities.push({ entity: hovered, color: "#EA580C" });
+          else if (selected) activeEntities.push({ entity: selected, color: "#FCD34D" });
+
+          return activeEntities.map(({ entity, color }) => {
+            const provs = entity.provinces || [];
+            if (!provs.length) return null;
+            const allFeatures = [...(geoSpain||[]), ...(geoPortugal||[])];
+            const matchingFeatures = allFeatures.filter(f => {
+              const norm = normName(f.properties?.name||f.properties?.NAME_2||f.properties?.NAME||f.properties?.Distrito||"");
+              return provs.includes(norm);
+            });
+            if (!matchingFeatures.length) return null;
+            const clipId = `clip-${entity.id}`;
+            // Combine all province paths into one d string for the clipPath
+            const combinedD = matchingFeatures.map(f=>pathGen(f)).filter(Boolean).join(" ");
+            return (
+              <g key={`outline-${entity.id}`} style={{pointerEvents:"none"}}>
+                {/* clipPath = union of all provinces */}
+                <defs>
+                  <clipPath id={clipId}>
+                    <path d={combinedD}/>
+                  </clipPath>
+                </defs>
+                {/* Thick stroke clipped to the union — interior borders get clipped away */}
+                <path d={combinedD}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={5}
+                  strokeLinejoin="round"
+                  clipPath={`url(#${clipId})`}
+                />
+                {/* Thin exterior-only stroke on top */}
+                <path d={combinedD}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={1.2}
+                  strokeLinejoin="round"
+                />
+              </g>
+            );
+          });
+        })()}
+
         {/* Andorra */}
         {projection && (()=>{
           const [ax,ay] = projection(ANDORRA_CENTROID);
@@ -472,8 +520,8 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
                 fill={fill}
                 opacity={hasHighlight && !isSelected && !isHovered ? 0.25 : 1}
                 stroke={isSelected?"#FCD34D":isHovered?"#EA580C":"#fff"}
-                strokeWidth={isSelected||isHovered?2.5:1}
-                style={{filter:tooltip?.norm==="Andorra"?"brightness(0.88)":"none",transition:"opacity 0.15s"}}/>
+                strokeWidth={isSelected||isHovered?2:1}
+                style={{filter:tooltip?.norm==="Andorra"?"brightness(0.88)":(isHovered||isSelected)?"brightness(1.35) saturate(1.4)":"none",transition:"opacity 0.15s"}}/>
               <text x={ax} y={ay} textAnchor="middle" dominantBaseline="middle"
                 fontSize="5.5" fill={ps.length?"rgba(255,255,255,0.9)":"#A8B4C0"}
                 fontFamily="system-ui,sans-serif" fontWeight="700"
@@ -1610,7 +1658,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
               <div style={{display:"flex",gap:6,margin:"4px 0"}}>
                 <span style={{fontSize:11,color:"#94A3B8",fontWeight:600,
                   alignSelf:"center",marginRight:2}}>¿Quién?</span>
-                {["Toni","Gerard","Isabel"].map(name=>(
+                {["Toni","Gerard"].map(name=>(
                   <button key={name} onClick={()=>setAuthor(author===name?"":name)}
                     style={{flex:1,padding:"7px 0",borderRadius:8,fontSize:12,fontWeight:700,
                       cursor:"pointer",transition:"all 0.12s",
@@ -1622,7 +1670,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                 ))}
               </div>
 
-              {/* Reminder toggle */}
+              {/* Reminder toggle — optional, independent of update */}
               <div style={{marginTop:6}}>
                 <button onClick={()=>setShowReminder(r=>!r)} style={{
                   background:showReminder?"#FEF9C3":"#F8FAFC",
@@ -1665,7 +1713,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                         Para
                       </label>
                       <div style={{display:"flex",gap:5}}>
-                        {["Toni","Gerard","Isabel"].map(name=>(
+                        {["Toni","Gerard"].map(name=>(
                           <button key={name} onClick={()=>setReminderUser(reminderUser===name?"":name)}
                             style={{flex:1,padding:"5px 0",borderRadius:6,fontSize:11,fontWeight:700,
                               cursor:"pointer",
@@ -1677,12 +1725,30 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                         ))}
                       </div>
                     </div>
+                    {/* Save reminder-only button */}
+                    <button onClick={()=>{
+                      if (!reminderDate) return;
+                      const user = reminderUser || author || "Toni";
+                      const today = new Date();
+                      const date = `${today.getDate().toString().padStart(2,"0")}/${(today.getMonth()+1).toString().padStart(2,"0")}/${today.getFullYear()}`;
+                      const reminder = { date: reminderDate, time: reminderTime||"09:00", user, done: false };
+                      onAddUpdate(entity.id,{id:"u"+Date.now(),date,author:user,
+                        text:`🔔 Recordatorio: ${reminderDate.split("-").reverse().join("/")}${reminderTime?" a las "+reminderTime:""}`,
+                        reminder});
+                      setShowReminder(false); setReminderDate(""); setReminderTime(""); setReminderUser("");
+                    }} disabled={!reminderDate}
+                      style={{width:"100%",background:reminderDate?"#92400E":"#E2E8F0",
+                        color:reminderDate?"white":"#94A3B8",border:"none",borderRadius:6,
+                        padding:"8px",fontSize:12,fontWeight:700,
+                        cursor:reminderDate?"pointer":"default"}}>
+                      🔔 Guardar solo recordatorio
+                    </button>
                   </div>
                 )}
               </div>
               <button onClick={addNote}
                 disabled={!note.trim() || !author}
-                style={{width:"100%",marginTop:4,
+                style={{width:"100%",marginTop:8,
                   background: note.trim()&&author ? hdr : "#E2E8F0",
                   color: note.trim()&&author ? "white" : "#94A3B8",
                   border:"none",borderRadius:8,padding:"12px",
@@ -2133,7 +2199,7 @@ function AppInner({ session, onLogout }) {
 
       {/* Detail panel (full screen on mobile) */}
       {selected && (
-        <DetailPanel entity={selected} onClose={()=>setSelected(null)}
+        <DetailPanel entity={selected} onClose={()=>{setSelected(null);setHovered(null);}}
           onUpdate={updateEntity} onAddUpdate={addUpdate}
           onPromote={promoteProspect} onDelete={deleteEntity} isMobile={true}/>
       )}
@@ -2392,7 +2458,7 @@ function AppInner({ session, onLogout }) {
 
           {/* Detail panel — inline in sidebar column when map is visible */}
           {selected && showMap && (
-            <DetailPanel entity={selected} onClose={()=>setSelected(null)}
+            <DetailPanel entity={selected} onClose={()=>{setSelected(null);setHovered(null);}}
               onUpdate={updateEntity} onAddUpdate={addUpdate}
               onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
           )}
@@ -2411,7 +2477,7 @@ function AppInner({ session, onLogout }) {
 
       {/* Detail panel — floating only when map is hidden */}
       {selected && !showMap && (
-        <DetailPanel entity={selected} onClose={()=>setSelected(null)}
+        <DetailPanel entity={selected} onClose={()=>{setSelected(null);setHovered(null);}}
           onUpdate={updateEntity} onAddUpdate={addUpdate}
           onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
       )}
