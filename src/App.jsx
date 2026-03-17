@@ -388,6 +388,8 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
 
   const pathGen = projection ? d3.geoPath().projection(projection) : null;
 
+  const HIGHLIGHT_COLOR = "#1E3A8A"; // Cegid blue
+
   const renderFeature = (f, i) => {
     if (!pathGen) return null;
     const raw = f.properties?.name || f.properties?.NAME_2 || f.properties?.NAME || f.properties?.Distrito || "";
@@ -403,28 +405,27 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
     const label = norm.length>11 ? norm.substring(0,10)+"." : norm;
     const hasHighlight = selected || hovered || geoHighlight;
     const isHighlighted = isSelected || isHovered || isGeoHL;
+    const activeFill = isGeoHL ? "#FEF08A" : (isHighlighted ? HIGHLIGHT_COLOR : fill);
     return (
       <g key={`${i}-${norm}`}
         onClick={(e) => handleClick(norm, e)}
         style={{cursor: ps.length ? "pointer" : "default"}}>
         <path d={d}
-          fill={isGeoHL ? "#FEF08A" : fill}
+          fill={activeFill}
           opacity={hasHighlight && !isHighlighted ? 0.25 : 1}
           stroke="#fff"
           strokeWidth={0.6}
-          style={{
-            filter: tooltip?.norm===norm ? "brightness(0.88)" : isHovered ? "brightness(1.35) saturate(1.4)" : isSelected ? "brightness(1.2) saturate(1.2)" : "none",
-            transition:"opacity 0.15s, filter 0.15s"
-          }}
+          style={{transition:"opacity 0.15s, fill 0.15s",
+            filter: tooltip?.norm===norm ? "brightness(0.88)" : "none"}}
         />
         {cx && cy && (
           <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
             fontSize={norm.length>9?"6":"7"}
-            fill={(isHovered||isSelected) ? "rgba(255,255,255,1)" : ps.length ? "rgba(255,255,255,0.9)" : "#A8B4C0"}
+            fill={isHighlighted ? "rgba(255,255,255,1)" : ps.length ? "rgba(255,255,255,0.9)" : "#A8B4C0"}
             fontFamily="system-ui,sans-serif"
-            fontWeight={(isHovered||isSelected) ? "800" : "600"}
+            fontWeight={isHighlighted ? "800" : "600"}
             style={{pointerEvents:"none",userSelect:"none",
-              textShadow:(isHovered||isSelected)?"0 1px 3px rgba(0,0,0,0.6)":"none"}}>
+              textShadow: isHighlighted ? "0 1px 2px rgba(0,0,0,0.5)" : "none"}}>
             {label}
           </text>
         )}
@@ -459,11 +460,11 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
         })}
         {geoPortugal && pathGen && geoPortugal.map((f,i)=>renderFeature(f,`pt-${i}`))}
 
-        {/* Unified exterior border for hovered/selected partner — clipPath technique */}
+        {/* Exterior-only border for hovered/selected partner */}
         {pathGen && (()=>{
           const activeEntities = [];
-          if (hovered) activeEntities.push({ entity: hovered, color: "#EA580C" });
-          else if (selected) activeEntities.push({ entity: selected, color: "#FCD34D" });
+          if (hovered) activeEntities.push({ entity: hovered, color: "#93C5FD" }); // light blue border
+          else if (selected) activeEntities.push({ entity: selected, color: "#93C5FD" });
 
           return activeEntities.map(({ entity, color }) => {
             const provs = entity.provinces || [];
@@ -474,31 +475,47 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
               return provs.includes(norm);
             });
             if (!matchingFeatures.length) return null;
-            const clipId = `clip-${entity.id}`;
-            // Combine all province paths into one d string for the clipPath
             const combinedD = matchingFeatures.map(f=>pathGen(f)).filter(Boolean).join(" ");
+            const maskId = `mask-${entity.id}`;
             return (
-              <g key={`outline-${entity.id}`} style={{pointerEvents:"none"}}>
-                {/* clipPath = union of all provinces */}
+              <g key={`border-${entity.id}`} style={{pointerEvents:"none"}}>
                 <defs>
-                  <clipPath id={clipId}>
-                    <path d={combinedD}/>
-                  </clipPath>
+                  {/* Mask: white inside the provinces, black outside */}
+                  <mask id={maskId}>
+                    <rect width={dims.w} height={dims.h} fill="black"/>
+                    <path d={combinedD} fill="white"/>
+                  </mask>
                 </defs>
-                {/* Thick stroke clipped to the union — interior borders get clipped away */}
+                {/* Step 1: draw thick stroke on combined path, masked to interior → erases internal white borders */}
                 <path d={combinedD}
                   fill="none"
-                  stroke={color}
-                  strokeWidth={5}
+                  stroke={HIGHLIGHT_COLOR}
+                  strokeWidth={1.8}
                   strokeLinejoin="round"
-                  clipPath={`url(#${clipId})`}
+                  mask={`url(#${maskId})`}
                 />
-                {/* Thin exterior-only stroke on top */}
+                {/* Step 2: draw thin exterior stroke — not masked, shows all borders */}
+                {/* Use inverse: stroke outside via large strokeWidth masked to outside */}
                 <path d={combinedD}
                   fill="none"
                   stroke={color}
-                  strokeWidth={1.2}
+                  strokeWidth={1.5}
                   strokeLinejoin="round"
+                  strokeDasharray="none"
+                  style={{
+                    // Only show the stroke outside: invert the mask
+                    mask:`none`,
+                    // We use a different trick: draw stroke, then overdraw interior with fill color
+                  }}
+                />
+                {/* Step 3: overdraw interior stroke with solid fill to hide internal borders */}
+                <path d={combinedD}
+                  fill={HIGHLIGHT_COLOR}
+                  stroke={HIGHLIGHT_COLOR}
+                  strokeWidth={0.8}
+                  strokeLinejoin="round"
+                  mask={`url(#${maskId})`}
+                  style={{opacity:1}}
                 />
               </g>
             );
@@ -1136,6 +1153,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   const [reminderDate, setReminderDate]   = useState("");
   const [reminderTime, setReminderTime]   = useState("");
   const [reminderUser, setReminderUser]   = useState("");
+  const [reminderNote, setReminderNote]   = useState("");
   const [showReminder, setShowReminder]   = useState(false);
 
   const addNote = () => {
@@ -1143,11 +1161,11 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
     const today = new Date();
     const date = `${today.getDate().toString().padStart(2,"0")}/${(today.getMonth()+1).toString().padStart(2,"0")}/${today.getFullYear()}`;
     const reminder = showReminder && reminderDate
-      ? { date: reminderDate, time: reminderTime||"09:00", user: reminderUser||author, done: false }
+      ? { date: reminderDate, time: reminderTime||"09:00", user: reminderUser||author, note: reminderNote||"", done: false }
       : undefined;
     onAddUpdate(entity.id,{id:"u"+Date.now(),date,author,text:note.trim(),photo:updatePhoto||undefined,pdf:updatePdf||undefined,reminder});
     setNote(""); setUpdatePhoto(null); setUpdatePdf(null);
-    setShowReminder(false); setReminderDate(""); setReminderTime(""); setReminderUser("");
+    setShowReminder(false); setReminderDate(""); setReminderTime(""); setReminderUser(""); setReminderNote("");
   };
 
   const saveContact = () => {
@@ -1725,17 +1743,28 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                         ))}
                       </div>
                     </div>
+                    <div>
+                      <label style={{fontSize:10,fontWeight:700,color:"#92400E",
+                        textTransform:"uppercase",letterSpacing:"0.05em",display:"block",marginBottom:3}}>
+                        Motivo
+                      </label>
+                      <input value={reminderNote} onChange={e=>setReminderNote(e.target.value)}
+                        placeholder="ej. llamada, correo, avisar manager…"
+                        style={{width:"100%",border:"1px solid #FDE68A",borderRadius:6,
+                          padding:"7px 8px",fontSize:12,boxSizing:"border-box",
+                          fontFamily:"system-ui,sans-serif",background:"white",color:"#1E293B"}}/>
+                    </div>
                     {/* Save reminder-only button */}
                     <button onClick={()=>{
                       if (!reminderDate) return;
                       const user = reminderUser || author || "Toni";
                       const today = new Date();
                       const date = `${today.getDate().toString().padStart(2,"0")}/${(today.getMonth()+1).toString().padStart(2,"0")}/${today.getFullYear()}`;
-                      const reminder = { date: reminderDate, time: reminderTime||"09:00", user, done: false };
+                      const reminder = { date: reminderDate, time: reminderTime||"09:00", user, note: reminderNote||"", done: false };
                       onAddUpdate(entity.id,{id:"u"+Date.now(),date,author:user,
-                        text:`🔔 Recordatorio: ${reminderDate.split("-").reverse().join("/")}${reminderTime?" a las "+reminderTime:""}`,
+                        text:`🔔 ${reminderNote||"Recordatorio"} · ${reminderDate.split("-").reverse().join("/")}${reminderTime?" a las "+reminderTime:""}`,
                         reminder});
-                      setShowReminder(false); setReminderDate(""); setReminderTime(""); setReminderUser("");
+                      setShowReminder(false); setReminderDate(""); setReminderTime(""); setReminderUser(""); setReminderNote("");
                     }} disabled={!reminderDate}
                       style={{width:"100%",background:reminderDate?"#92400E":"#E2E8F0",
                         color:reminderDate?"white":"#94A3B8",border:"none",borderRadius:6,
@@ -1834,6 +1863,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                               <strong>{u.reminder.user}</strong>
                               {" · "}{u.reminder.date.split("-").reverse().join("/")}
                               {u.reminder.time && ` a las ${u.reminder.time}`}
+                              {u.reminder.note && <div style={{marginTop:2,fontStyle:"italic",opacity:0.85}}>{u.reminder.note}</div>}
                             </div>
                             {!u.reminder.done && (
                               <button onClick={()=>onUpdate({...entity,updates:(entity.updates||[]).map(x=>
@@ -2332,6 +2362,11 @@ function AppInner({ session, onLogout }) {
                       <div style={{fontSize:12,fontWeight:700,color:"#1E293B",marginBottom:2}}>
                         {r.entityName}
                       </div>
+                      {r.note && (
+                        <div style={{fontSize:11,fontWeight:600,color:"#92400E",fontStyle:"italic",marginBottom:2}}>
+                          {r.note}
+                        </div>
+                      )}
                       <div style={{fontSize:11,color:"#64748B",lineHeight:1.4,
                         overflow:"hidden",textOverflow:"ellipsis",
                         display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
