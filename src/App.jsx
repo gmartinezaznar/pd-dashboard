@@ -273,6 +273,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
   const containerRef = useRef(null);
   const [geoSpain, setGeoSpain] = useState(null);
   const [geoPortugal, setGeoPortugal] = useState(null);
+  const [geoAndorra, setGeoAndorra] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tooltip, setTooltip] = useState(null);
@@ -313,9 +314,10 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
 
         // Use a single reliable combined Iberia GeoJSON source
         // Spain: naturalearth via unpkg (simple GeoJSON, no topojson needed)
-        const [spRes, ptRes] = await Promise.all([
+        const [spRes, ptRes, adRes] = await Promise.all([
           fetch("https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/spain-provinces.geojson"),
           fetch("https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/portugal-districts.geojson"),
+          fetch("https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson"),
         ]);
 
         if (!spRes.ok) throw new Error(`Spain GeoJSON failed: ${spRes.status}`);
@@ -326,6 +328,15 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
 
         setGeoSpain(spGeo.features || []);
         setGeoPortugal(ptGeo.features || []);
+
+        // Extract Andorra from countries GeoJSON if available
+        if (adRes.ok) {
+          const adGeo = await adRes.json();
+          const andorra = (adGeo.features||[]).find(f=>
+            f.properties?.ADMIN==="Andorra"||f.properties?.name==="Andorra"||f.properties?.ISO_A2==="AD"
+          );
+          if (andorra && !cancelled) setGeoAndorra(andorra);
+        }
         setLoading(false);
       } catch(e) {
         if (cancelled) return;
@@ -517,27 +528,66 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
           })}
         </g>
 
-        {/* Andorra */}
+        {/* Andorra — real shape if loaded, fallback circle */}
         {projection && (()=>{
-          const [ax,ay] = projection(ANDORRA_CENTROID);
           const ps = provMap["Andorra"] || [];
-          const fill = DENSITY[Math.min(ps.length, DENSITY.length-1)];
           const isSelected = selected && ps.some(p=>p.id===selected.id);
           const isHovered = hovered && (hovered.provinces||[]).includes("Andorra");
           const hasHighlight = selected || hovered;
+          const isHighlighted = isSelected || isHovered;
+          const fill = isHighlighted ? HIGHLIGHT_COLOR : DENSITY[Math.min(ps.length, DENSITY.length-1)];
+          const opacity = hasHighlight && !isHighlighted ? 0.25 : 1;
+
+          if (geoAndorra && pathGen) {
+            const d = pathGen(geoAndorra);
+            if (d) {
+              const [cx,cy] = pathGen.centroid(geoAndorra);
+              const maskId = "mask-andorra";
+              return (
+                <g style={{cursor:ps.length?"pointer":"default"}}
+                  onClick={(e)=>{ e.stopPropagation(); handleClick("Andorra",e); }}>
+                  <path d={d} fill={fill} opacity={opacity}
+                    stroke="rgba(255,255,255,0.4)" strokeWidth={0.6}
+                    style={{transition:"opacity 0.15s, fill 0.15s",
+                      filter:tooltip?.norm==="Andorra"?"brightness(0.88)":"none"}}/>
+                  {/* Exterior border via mask when highlighted */}
+                  {isHighlighted && (
+                    <g style={{pointerEvents:"none"}}>
+                      <defs>
+                        <mask id={maskId}>
+                          <rect width={dims.w} height={dims.h} fill="white"/>
+                          <path d={d} fill="black"/>
+                        </mask>
+                      </defs>
+                      <path d={d} fill="none" stroke="#93C5FD"
+                        strokeWidth={4} strokeLinejoin="round"
+                        mask={`url(#${maskId})`}/>
+                    </g>
+                  )}
+                  {/* Label */}
+                  {cx && cy && (
+                    <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+                      fontSize="5" fill="rgba(255,255,255,0.92)"
+                      fontFamily="system-ui,sans-serif" fontWeight="700"
+                      style={{pointerEvents:"none",userSelect:"none"}}>AND</text>
+                  )}
+                </g>
+              );
+            }
+          }
+
+          // Fallback: circle
+          const [ax,ay] = projection(ANDORRA_CENTROID);
           return (
-            <g style={{cursor:"pointer"}}
+            <g style={{cursor:ps.length?"pointer":"default"}}
               onClick={(e)=>{ e.stopPropagation(); handleClick("Andorra",e); }}>
-              <circle cx={ax} cy={ay} r={10}
-                fill={fill}
-                opacity={hasHighlight && !isSelected && !isHovered ? 0.25 : 1}
-                stroke={isSelected?"#FCD34D":isHovered?"#EA580C":"#fff"}
-                strokeWidth={isSelected||isHovered?2:1}
-                style={{filter:tooltip?.norm==="Andorra"?"brightness(0.88)":(isHovered||isSelected)?"brightness(1.35) saturate(1.4)":"none",transition:"opacity 0.15s"}}/>
+              <circle cx={ax} cy={ay} r={8} fill={fill} opacity={opacity}
+                stroke="rgba(255,255,255,0.4)" strokeWidth={0.6}
+                style={{transition:"opacity 0.15s, fill 0.15s"}}/>
               <text x={ax} y={ay} textAnchor="middle" dominantBaseline="middle"
-                fontSize="5.5" fill={ps.length?"rgba(255,255,255,0.9)":"#A8B4C0"}
+                fontSize="5" fill="rgba(255,255,255,0.92)"
                 fontFamily="system-ui,sans-serif" fontWeight="700"
-                style={{pointerEvents:"none"}}>AND</text>
+                style={{pointerEvents:"none",userSelect:"none"}}>AND</text>
             </g>
           );
         })()}      </svg>
@@ -581,7 +631,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
 
       {/* Canarias inset */}
       <CanariasInset partners={partners} prospects={prospects}
-        selected={selected} onSelect={onSelect} provMap={provMap}
+        selected={selected} hovered={hovered} onSelect={onSelect} provMap={provMap}
         geoSpain={geoSpain} pathGen={pathGen} normName={normName}
         densityColors={DENSITY}/>
 
@@ -773,10 +823,10 @@ function LocalitySearch({ normName, onHighlight }) {
 }
 
 // ── Canarias inset ─────────────────────────────────────────────────────────
-function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selected, densityColors }) {
-  const [hovered, setHovered] = useState(null);
+function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selected, hovered, densityColors }) {
   const [sharedPopup, setSharedPopup] = useState(null);
   const W=200, H=100;
+  const HIGHLIGHT_COLOR = "#1E3A8A";
   const getColor = (norm) => densityColors[Math.min((provMap[norm]||[]).length, densityColors.length-1)];
 
   const canFeatures = geoSpain ? geoSpain.filter(f=>{
@@ -793,6 +843,9 @@ function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selecte
 
   const insetPath = insetProj ? d3.geoPath().projection(insetProj) : null;
 
+  // Determine active entity for highlight
+  const activeEntity = hovered || selected || null;
+
   return (
     <div style={{position:"absolute",bottom:10,right:10,background:"white",
       border:"1.5px solid #CBD5E1",borderRadius:8,padding:"6px 8px",
@@ -803,61 +856,103 @@ function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selecte
         <div style={{position:"relative"}}>
           <svg viewBox={`0 0 ${W} ${H}`} style={{width:W,height:H,display:"block"}}>
             <rect width={W} height={H} fill="#DBEAFE" rx="4"/>
+
+            {/* Fill pass */}
             {canFeatures.map((f,i)=>{
               const norm = normName(f.properties?.name||f.properties?.NAME_2||f.properties?.NAME||"");
               const ps = provMap[norm] || [];
-              const isSelected = selected && ps.some(p=>p.id===selected.id);
+              const isHighlighted = activeEntity && ps.some(p=>p.id===activeEntity.id);
+              const hasHighlight = !!activeEntity;
               const d = insetPath(f);
-              const [cx,cy] = insetPath.centroid(f);
               const fill = getColor(norm);
               return (
                 <g key={i} style={{cursor:ps.length?"pointer":"default"}}
                   onClick={()=>{
                     if (ps.length===1) onSelect(ps[0]);
                     else if (ps.length>1) setSharedPopup({norm, partners:ps});
+                    else if (ps.length===0) setSharedPopup(null);
+                    // Always show popup for any province with partners
+                    if (ps.length>=1) setSharedPopup({norm, partners:ps});
                   }}>
-                  <path d={d} fill={fill}
-                    stroke={isSelected?"#FCD34D":"#fff"} strokeWidth={isSelected?2:0.6}/>
-                  {cx && cy && (
-                    <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
-                      fontSize="6" fill={ps.length?"white":"#94A3B8"}
-                      fontFamily="system-ui,sans-serif" fontWeight="600"
-                      style={{pointerEvents:"none"}}>
-                      {norm==="Las Palmas"?"Las Palmas":"Sta. Cruz"}
-                    </text>
-                  )}
+                  <path d={d}
+                    fill={isHighlighted ? HIGHLIGHT_COLOR : fill}
+                    opacity={hasHighlight && !isHighlighted ? 0.25 : 1}
+                    stroke="rgba(255,255,255,0.4)"
+                    strokeWidth={0.6}
+                    style={{transition:"opacity 0.15s, fill 0.15s"}}/>
                 </g>
               );
             })}
+
+            {/* Exterior border overlay via mask */}
+            {activeEntity && insetPath && (()=>{
+              const provs = activeEntity.provinces || [];
+              const matchingFeatures = canFeatures.filter(f => {
+                const norm = normName(f.properties?.name||f.properties?.NAME_2||f.properties?.NAME||"");
+                return provs.includes(norm);
+              });
+              if (!matchingFeatures.length) return null;
+              const combinedD = matchingFeatures.map(f=>insetPath(f)).filter(Boolean).join(" ");
+              const maskId = `can-mask-${activeEntity.id}`;
+              return (
+                <g style={{pointerEvents:"none"}}>
+                  <defs>
+                    <mask id={maskId}>
+                      <rect width={W} height={H} fill="white"/>
+                      <path d={combinedD} fill="black"/>
+                    </mask>
+                  </defs>
+                  <path d={combinedD}
+                    fill="none" stroke="#93C5FD" strokeWidth={4}
+                    strokeLinejoin="round" mask={`url(#${maskId})`}/>
+                </g>
+              );
+            })()}
+
+            {/* Labels on top */}
+            <g style={{pointerEvents:"none"}}>
+              {canFeatures.map((f,i)=>{
+                const norm = normName(f.properties?.name||f.properties?.NAME_2||f.properties?.NAME||"");
+                const ps = provMap[norm] || [];
+                const [cx,cy] = insetPath.centroid(f);
+                if (!cx||!cy) return null;
+                return (
+                  <text key={`lbl-${i}`} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+                    fontSize="6" fill={ps.length?"rgba(255,255,255,0.92)":"#94A3B8"}
+                    fontFamily="system-ui,sans-serif" fontWeight="600"
+                    style={{userSelect:"none"}}>
+                    {norm==="Las Palmas"?"Las Palmas":"Sta. Cruz"}
+                  </text>
+                );
+              })}
+            </g>
           </svg>
-          {/* Shared popup for Canarias */}
+          {/* Popup for Canarias — styled like main map tooltip */}
           {sharedPopup && (
-            <div style={{position:"absolute",bottom:"100%",right:0,marginBottom:4,
-              background:"white",border:"1px solid #E2E8F0",borderRadius:8,
-              boxShadow:"0 4px 20px rgba(0,0,0,0.15)",padding:"8px 10px",
-              minWidth:160,zIndex:60}}>
-              <div style={{fontSize:10,fontWeight:800,color:"#7C3AED",marginBottom:6}}>
-                {sharedPopup.norm}
+            <div onClick={e=>e.stopPropagation()} style={{
+              position:"absolute",bottom:"calc(100% + 6px)",right:0,
+              background:"rgba(15,23,42,0.92)",backdropFilter:"blur(6px)",
+              borderRadius:9,padding:"9px 11px",minWidth:160,zIndex:60,
+              boxShadow:"0 4px 16px rgba(0,0,0,0.25)",fontFamily:"system-ui,sans-serif"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <span style={{fontSize:11,fontWeight:700,color:"white"}}>{sharedPopup.norm}</span>
+                <button onClick={()=>setSharedPopup(null)} style={{background:"none",border:"none",
+                  color:"rgba(255,255,255,0.4)",cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>
               </div>
               {sharedPopup.partners.map(p=>(
                 <div key={p.id} onClick={()=>{onSelect(p);setSharedPopup(null);}}
-                  style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",
-                    borderRadius:5,cursor:"pointer",marginBottom:2,background:"#F8FAFC"}}
-                  onMouseEnter={e=>e.currentTarget.style.background="#EEF2FF"}
-                  onMouseLeave={e=>e.currentTarget.style.background="#F8FAFC"}>
-                  <div style={{width:16,height:16,borderRadius:3,background:levelColor(p),
-                    flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
-                    fontSize:8,fontWeight:800,color:"white"}}>
-                    {p.name.charAt(0)}
-                  </div>
-                  <span style={{fontSize:10,fontWeight:600,color:"#1E293B"}}>
-                    {p.name.split(" ").slice(0,2).join(" ")}
+                  style={{display:"flex",alignItems:"center",gap:7,padding:"5px 6px",
+                    borderRadius:6,cursor:"pointer",marginBottom:2,
+                    background:"rgba(255,255,255,0.07)"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.14)"}
+                  onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.07)"}>
+                  <div style={{width:8,height:8,borderRadius:2,background:levelColor(p),flexShrink:0}}/>
+                  <span style={{fontSize:11,color:"rgba(255,255,255,0.85)",fontWeight:500,
+                    whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                    {p.name.split(" ").slice(0,3).join(" ")}
                   </span>
                 </div>
               ))}
-              <button onClick={()=>setSharedPopup(null)}
-                style={{position:"absolute",top:4,right:6,background:"none",border:"none",
-                  cursor:"pointer",color:"#94A3B8",fontSize:12}}>×</button>
             </div>
           )}
         </div>
