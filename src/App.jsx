@@ -418,16 +418,6 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
           style={{transition:"opacity 0.15s, fill 0.15s",
             filter: tooltip?.norm===norm ? "brightness(0.88)" : "none"}}
         />
-        {cx && cy && (
-          <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
-            fontSize={norm.length>9?"6":"7"}
-            fill="rgba(255,255,255,0.92)"
-            fontFamily="system-ui,sans-serif"
-            fontWeight={isHighlighted ? "700" : "600"}
-            style={{pointerEvents:"none",userSelect:"none"}}>
-            {label}
-          </text>
-        )}
       </g>
     );
   };
@@ -462,10 +452,10 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
         {/* Exterior-only border for hovered/selected partner */}
         {pathGen && (()=>{
           const activeEntities = [];
-          if (hovered) activeEntities.push({ entity: hovered, color: "#93C5FD" }); // light blue border
-          else if (selected) activeEntities.push({ entity: selected, color: "#93C5FD" });
+          if (hovered) activeEntities.push({ entity: hovered });
+          else if (selected) activeEntities.push({ entity: selected });
 
-          return activeEntities.map(({ entity, color }) => {
+          return activeEntities.map(({ entity }) => {
             const provs = entity.provinces || [];
             if (!provs.length) return null;
             const allFeatures = [...(geoSpain||[]), ...(geoPortugal||[])];
@@ -475,51 +465,57 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
             });
             if (!matchingFeatures.length) return null;
             const combinedD = matchingFeatures.map(f=>pathGen(f)).filter(Boolean).join(" ");
-            const maskId = `mask-${entity.id}`;
+            const maskId = `mask-ext-${entity.id}`;
+            // Exterior mask: black inside, white outside → clips stroke to exterior only
             return (
               <g key={`border-${entity.id}`} style={{pointerEvents:"none"}}>
                 <defs>
-                  {/* Mask: white inside the provinces, black outside */}
                   <mask id={maskId}>
-                    <rect width={dims.w} height={dims.h} fill="black"/>
-                    <path d={combinedD} fill="white"/>
+                    <rect width={dims.w} height={dims.h} fill="white"/>
+                    <path d={combinedD} fill="black"/>
                   </mask>
                 </defs>
-                {/* Step 1: draw thick stroke on combined path, masked to interior → erases internal white borders */}
+                {/* Thick stroke, masked to exterior only → only outer border visible */}
                 <path d={combinedD}
                   fill="none"
-                  stroke={HIGHLIGHT_COLOR}
-                  strokeWidth={1.8}
+                  stroke="#93C5FD"
+                  strokeWidth={4}
                   strokeLinejoin="round"
                   mask={`url(#${maskId})`}
-                />
-                {/* Step 2: draw thin exterior stroke — not masked, shows all borders */}
-                {/* Use inverse: stroke outside via large strokeWidth masked to outside */}
-                <path d={combinedD}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={1.5}
-                  strokeLinejoin="round"
-                  strokeDasharray="none"
-                  style={{
-                    // Only show the stroke outside: invert the mask
-                    mask:`none`,
-                    // We use a different trick: draw stroke, then overdraw interior with fill color
-                  }}
-                />
-                {/* Step 3: overdraw interior stroke with solid fill to hide internal borders */}
-                <path d={combinedD}
-                  fill={HIGHLIGHT_COLOR}
-                  stroke={HIGHLIGHT_COLOR}
-                  strokeWidth={0.8}
-                  strokeLinejoin="round"
-                  mask={`url(#${maskId})`}
-                  style={{opacity:1}}
                 />
               </g>
             );
           });
         })()}
+
+        {/* Labels on top — always visible over fills and borders */}
+        <g style={{pointerEvents:"none"}}>
+          {geoSpain && pathGen && geoSpain.map((f,i)=>{
+            const norm = normName(f.properties?.name||f.properties?.NAME_2||f.properties?.NAME||"");
+            if (["Las Palmas","Santa Cruz de Tenerife","Ceuta","Melilla"].includes(norm)) return null;
+            const [cx,cy] = LABEL_OVERRIDE[norm] ? projection(LABEL_OVERRIDE[norm]) : pathGen.centroid(f);
+            if (!cx||!cy) return null;
+            const label = norm.length>11 ? norm.substring(0,10)+"." : norm;
+            return (
+              <text key={`lbl-${i}`} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+                fontSize={norm.length>9?"6":"7"} fill="rgba(255,255,255,0.92)"
+                fontFamily="system-ui,sans-serif" fontWeight="600"
+                style={{userSelect:"none"}}>{label}</text>
+            );
+          })}
+          {geoPortugal && pathGen && geoPortugal.map((f,i)=>{
+            const norm = normName(f.properties?.Distrito||f.properties?.name||"");
+            const [cx,cy] = pathGen.centroid(f);
+            if (!cx||!cy) return null;
+            const label = norm.length>11 ? norm.substring(0,10)+"." : norm;
+            return (
+              <text key={`lbl-pt-${i}`} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+                fontSize={norm.length>9?"6":"7"} fill="rgba(255,255,255,0.92)"
+                fontFamily="system-ui,sans-serif" fontWeight="600"
+                style={{userSelect:"none"}}>{label}</text>
+            );
+          })}
+        </g>
 
         {/* Andorra */}
         {projection && (()=>{
