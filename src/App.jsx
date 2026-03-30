@@ -667,38 +667,67 @@ const COMMUNITY_TO_PROVINCE = {
   "Andorre": "Andorra",
   "Principat d'Andorra": "Andorra",
   "Principado de Andorra": "Andorra",
+  // Canarias
+  "Las Palmas": "Las Palmas",
+  "Santa Cruz de Tenerife": "Santa Cruz de Tenerife",
+  "Canarias": "Las Palmas",
+  // Comunidades → provincia única o más representativa
+  "Región de Murcia": "Murcia",
+  "Murcia": "Murcia",
+  "La Rioja": "La Rioja",
+  "Cantabria": "Cantabria",
+  "Asturias": "Asturias",
+  "Principado de Asturias": "Asturias",
+  "Navarra": "Navarra",
+  "Comunidad Foral de Navarra": "Navarra",
+  "Extremadura": null, // ambiguous — two provinces
+  "Islas Baleares": "Baleares",
+  "Illes Balears": "Baleares",
 };
 
 function extractProvince(addr, normNameFn) {
-  // Try direct province field first
   const candidates = [
     addr.province,
     addr.county,
     addr.state_district,
     addr.state,
-    addr.country,
   ].filter(Boolean);
 
   for (const raw of candidates) {
-    // Check explicit overrides first (Madrid, Andorra)
-    if (COMMUNITY_TO_PROVINCE[raw]) return COMMUNITY_TO_PROVINCE[raw];
+    if (COMMUNITY_TO_PROVINCE[raw] !== undefined) {
+      return COMMUNITY_TO_PROVINCE[raw] || null;
+    }
     const norm = normNameFn(raw);
     if (norm && ALL_PROVS.includes(norm)) return norm;
   }
   return null;
 }
 
+function extractLocality(addr) {
+  return (
+    addr.city ||
+    addr.town ||
+    addr.village ||
+    addr.municipality ||
+    addr.hamlet ||
+    addr.locality ||
+    addr.suburb ||
+    addr.neighbourhood ||
+    addr.quarter ||
+    ""
+  );
+}
+
 // ── Locality search (Nominatim autocomplete) ───────────────────────────────
 function LocalitySearch({ normName, onHighlight }) {
   const [query, setQuery] = useState("");
-  const [suggestions, setSuggestions] = useState([]); // [{label, province, display}]
+  const [suggestions, setSuggestions] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState(null); // chosen result
+  const [selected, setSelected] = useState(null);
   const [open, setOpen] = useState(false);
   const timerRef = useRef(null);
   const wrapRef = useRef(null);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const fn = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", fn);
@@ -709,28 +738,33 @@ function LocalitySearch({ normName, onHighlight }) {
     if (q.trim().length < 2) { setSuggestions([]); setOpen(false); return; }
     setSearching(true);
     try {
-      // Search Spain + Andorra, no appending ", España" to allow Andorra results
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=10&countrycodes=es,ad&accept-language=es`;
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=15&countrycodes=es,ad&accept-language=es`;
       const res = await fetch(url, { headers: { "Accept-Language": "es" } });
       const results = await res.json();
 
-      // Filter: only keep results whose display name contains the query letters
-      const qLower = q.toLowerCase();
+      const qLower = q.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
       const seen = new Set();
       const items = [];
+
       for (const r of results) {
         const addr = r.address || {};
-        const locality = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || addr.hamlet || "";
+        const locality = extractLocality(addr);
         const province = extractProvince(addr, normName);
         if (!province) continue;
-        // Filter out results where locality doesn't contain query substring
-        if (locality && !locality.toLowerCase().includes(qLower) &&
-            !province.toLowerCase().includes(qLower)) continue;
+
+        // Match against locality, display_name, or province — normalise accents for comparison
+        const localityNorm = locality.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+        const displayNorm = (r.display_name||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+        const passes = localityNorm.includes(qLower) ||
+                       displayNorm.includes(qLower) ||
+                       province.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes(qLower);
+        if (!passes) continue;
+
         const key = `${locality}-${province}`;
         if (seen.has(key)) continue;
         seen.add(key);
         items.push({ locality, province, display: locality ? `${locality} (${province})` : province });
-        if (items.length >= 6) break;
+        if (items.length >= 7) break;
       }
       setSuggestions(items);
       setOpen(items.length > 0);
@@ -1071,8 +1105,13 @@ function NewModal({ type, onClose, onSave }) {
         <div style={{display:"flex",gap:8,marginTop:20}}>
           <button onClick={()=>{
             if(!form.name.trim())return;
+            const today = new Date();
+            const dateStr = `${today.getDate().toString().padStart(2,"0")}/${(today.getMonth()+1).toString().padStart(2,"0")}/${today.getFullYear()}`;
+            const initialUpdates = form.notes?.trim()
+              ? [{id:"u"+Date.now(), date:dateStr, text:form.notes.trim()}]
+              : [];
             onSave({...form,id:"p"+Date.now(),type:type==="active"?"active":"prospect",
-              provinces:[],contacts:[],updates:[],arr:0,accounts:0,booking2026:0,
+              provinces:[],contacts:[],updates:initialUpdates,arr:0,accounts:0,booking2026:0,
               since:new Date().toISOString().split("T")[0]});
             onClose();
           }} style={{flex:1,background:"#1E3A8A",color:"white",border:"none",borderRadius:8,
@@ -2134,6 +2173,7 @@ function AppInner({ session, onLogout }) {
   const [sort, setSort] = useState("arr");
   const [showRemindersPanel, setShowRemindersPanel] = useState(false);
   const [showMap, setShowMap] = useState(true);
+  const [view, setView] = useState("partners"); // "partners" | "dashboard"
   const [syncState, setSyncState] = useState("idle"); // idle | saving | saved | error
   const saveTimer = useRef(null);
 
@@ -2361,13 +2401,20 @@ function AppInner({ session, onLogout }) {
             {syncState==="error"  && "✗ Error al guardar"}
           </div>
         )}
-        <button onClick={()=>setShowMap(m=>!m)} style={{
+        <button onClick={()=>setView(v=>v==="dashboard"?"partners":"dashboard")} style={{
+          background:view==="dashboard"?"white":"rgba(255,255,255,0.12)",
+          color:view==="dashboard"?"#1E3A8A":"rgba(255,255,255,0.75)",
+          border:view==="dashboard"?"none":"1px solid rgba(255,255,255,0.25)",
+          borderRadius:5,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          📊 Dashboard
+        </button>
+        {view==="partners" && <button onClick={()=>setShowMap(m=>!m)} style={{
           background:showMap?"white":"rgba(255,255,255,0.12)",
           color:showMap?"#1E3A8A":"rgba(255,255,255,0.75)",
           border:showMap?"none":"1px solid rgba(255,255,255,0.25)",
           borderRadius:5,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
           🗺 {showMap?"Ocultar mapa":"Ver mapa"}
-        </button>
+        </button>}
         {/* Bell */}
         <button onClick={()=>setShowRemindersPanel(r=>!r)} style={{
           position:"relative",background: pendingReminders.length?"#FEF9C3":"rgba(255,255,255,0.12)",
@@ -2483,6 +2530,9 @@ function AppInner({ session, onLogout }) {
         </div>
       )}
 
+      {view==="dashboard" ? (
+        <DashboardView data={data}/>
+      ) : (
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
         {/* Sidebar + Detail panel column */}
         <div style={{
@@ -2607,6 +2657,97 @@ function AppInner({ session, onLogout }) {
           onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
       )}
       {modal && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
+      </div>
+      )}
+    </div>
+  );
+}
+
+// ── Dashboard View ─────────────────────────────────────────────────────────
+function DashboardView({ data }) {
+  const totalArr = data.partners.reduce((s,p)=>s+(p.arr||0),0);
+  const totalAccounts = data.partners.reduce((s,p)=>s+(p.accounts||0),0);
+  const totalBooking = data.partners.reduce((s,p)=>s+(p.booking2026||0),0);
+  const premCount = data.partners.filter(p=>p.level==="premium").length;
+  const spCount = data.partners.filter(p=>p.level==="specialist").length;
+  const prCount = data.prospects.length;
+  const pendingReminders = [...data.partners,...data.prospects].flatMap(e=>
+    (e.updates||[]).filter(u=>u.reminder&&!u.reminder.done)
+  ).length;
+
+  const kpis = [
+    { label:"ARR Total", value:`€${(totalArr/1000).toFixed(0)}k`, sub:"Ingreso neto Revo", color:"#1E3A8A" },
+    { label:"Cuentas activas", value:totalAccounts, sub:"Clientes en canal", color:"#0891B2" },
+    { label:"Booking 2026", value:`€${(totalBooking/1000).toFixed(0)}k`, sub:"Contratado este año", color:"#059669" },
+    { label:"Partners", value:data.partners.length, sub:`${premCount} Premium · ${spCount} Specialist`, color:"#7C3AED" },
+    { label:"Prospectos", value:prCount, sub:"En pipeline", color:"#D97706" },
+    { label:"Recordatorios", value:pendingReminders, sub:"Pendientes", color:"#DC2626" },
+  ];
+
+  return (
+    <div style={{flex:1,overflowY:"auto",padding:24,background:"#F0F7FF",fontFamily:"system-ui,sans-serif"}}>
+      <div style={{maxWidth:1100,margin:"0 auto"}}>
+        <div style={{marginBottom:24}}>
+          <div style={{fontSize:20,fontWeight:800,color:"#1E293B"}}>Dashboard</div>
+          <div style={{fontSize:13,color:"#64748B",marginTop:2}}>Visión general del canal de distribución</div>
+        </div>
+
+        {/* KPI cards */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:14,marginBottom:28}}>
+          {kpis.map(k=>(
+            <div key={k.label} style={{background:"white",borderRadius:12,padding:"18px 20px",
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",border:"1px solid #E2E8F0"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",
+                letterSpacing:"0.06em",marginBottom:8}}>{k.label}</div>
+              <div style={{fontSize:28,fontWeight:800,color:k.color,marginBottom:4}}>{k.value}</div>
+              <div style={{fontSize:11,color:"#94A3B8"}}>{k.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Placeholder gráficos */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+          {[
+            {title:"ARR por partner", desc:"Ranking de distribuidores por ingreso neto"},
+            {title:"Evolución NB 2025-2026", desc:"Nuevas altas por trimestre"},
+          ].map(g=>(
+            <div key={g.title} style={{background:"white",borderRadius:12,padding:"20px",
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",border:"1px solid #E2E8F0",minHeight:220,
+              display:"flex",flexDirection:"column"}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:4}}>{g.title}</div>
+              <div style={{fontSize:11,color:"#94A3B8",marginBottom:16}}>{g.desc}</div>
+              <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",
+                background:"#F8FAFC",borderRadius:8,border:"1px dashed #CBD5E1"}}>
+                <div style={{textAlign:"center",color:"#CBD5E1"}}>
+                  <div style={{fontSize:28,marginBottom:6}}>📊</div>
+                  <div style={{fontSize:11,fontWeight:600}}>Próximamente</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
+          {[
+            {title:"Distribución por nivel", desc:"Premium vs Specialist"},
+            {title:"Cobertura territorial", desc:"Provincias con presencia"},
+            {title:"Pipeline de prospectos", desc:"Estado del proceso de captación"},
+          ].map(g=>(
+            <div key={g.title} style={{background:"white",borderRadius:12,padding:"20px",
+              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",border:"1px solid #E2E8F0",minHeight:180,
+              display:"flex",flexDirection:"column"}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:4}}>{g.title}</div>
+              <div style={{fontSize:11,color:"#94A3B8",marginBottom:16}}>{g.desc}</div>
+              <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",
+                background:"#F8FAFC",borderRadius:8,border:"1px dashed #CBD5E1"}}>
+                <div style={{textAlign:"center",color:"#CBD5E1"}}>
+                  <div style={{fontSize:24,marginBottom:6}}>📊</div>
+                  <div style={{fontSize:11,fontWeight:600}}>Próximamente</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
