@@ -2530,9 +2530,9 @@ function AppInner({ session, onLogout }) {
         </div>
       )}
 
-      {view==="dashboard" ? (
-        <DashboardView data={data}/>
-      ) : (
+      {view==="dashboard" && <DashboardView data={data}/>}
+
+      {view==="partners" && <>
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
         {/* Sidebar + Detail panel column */}
         <div style={{
@@ -2657,8 +2657,7 @@ function AppInner({ session, onLogout }) {
           onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
       )}
       {modal && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
-      </div>
-      )}
+      </>}
     </div>
   );
 }
