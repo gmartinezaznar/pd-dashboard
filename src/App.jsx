@@ -2151,6 +2151,208 @@ function LoginScreen({ onLogin }) {
   );
 }
 
+// ── CSV Import Modal ───────────────────────────────────────────────────────
+// Known aliases: CSV name → app partner name fragment
+const CSV_ALIASES = {
+  "babs 2008": "314tt",
+  "babs": "314tt",
+};
+
+function normalizeName(str) {
+  let s = str
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[.,'"()\[\]]/g,"")
+    .replace(/\b(sl|slu|sa|slp|sau|s\.l|s\.l\.|s\.a|srl|sarl|sociedad limitada|unipersonal|the|y|i|de|la|el|los|las|&)\b/gi,"")
+    .replace(/\s+/g," ").trim();
+  // Apply aliases
+  for (const [alias, replacement] of Object.entries(CSV_ALIASES)) {
+    if (s.includes(alias)) s = s.replace(alias, replacement);
+  }
+  return s;
+}
+
+function fuzzyScore(a, b) {
+  const na = normalizeName(a);
+  const nb = normalizeName(b);
+  if (na === nb) return 1;
+  // Token overlap score
+  const ta = new Set(na.split(" ").filter(t=>t.length>2));
+  const tb = new Set(nb.split(" ").filter(t=>t.length>2));
+  const intersection = [...ta].filter(t=>tb.has(t)).length;
+  const union = new Set([...ta,...tb]).size;
+  return union ? intersection/union : 0;
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  const headers = lines[0].split(",").map(h=>h.trim().replace(/^"|"$/g,"").toLowerCase());
+  const rows = [];
+  for (let i=1; i<lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    // Handle quoted fields with commas
+    const vals = [];
+    let cur="", inQ=false;
+    for (const ch of line) {
+      if (ch==='"') { inQ=!inQ; }
+      else if (ch==="," && !inQ) { vals.push(cur.trim()); cur=""; }
+      else cur+=ch;
+    }
+    vals.push(cur.trim());
+    const row = {};
+    headers.forEach((h,i)=>{ row[h]=vals[i]||""; });
+    rows.push(row);
+  }
+  return rows;
+}
+
+function CsvImportModal({ content, partners, onClose, onConfirm }) {
+  const rows = useMemo(()=>parseCSV(content),[content]);
+  const [excluded, setExcluded] = useState(new Set());
+
+  const matches = useMemo(()=>{
+    return rows.map(row=>{
+      const csvName = row["distribuidor"] || row["partner"] || row["nombre"] || Object.values(row)[0] || "";
+      const arrVal = parseFloat((row["arr"]||"").replace(",","."));
+
+      let best = null, bestScore = 0;
+      for (const p of partners) {
+        const score = fuzzyScore(csvName, p.name);
+        if (score > bestScore) { bestScore=score; best=p; }
+      }
+
+      const matched = bestScore >= 0.35;
+      return {
+        csvName,
+        arr: isNaN(arrVal) ? null : Math.round(arrVal),
+        partner: matched ? best : null,
+        score: bestScore,
+        matched,
+      };
+    }).filter(r=>r.csvName);
+  },[rows, partners]);
+
+  const toUpdate = matches.filter(m=>m.matched && m.arr!==null);
+  const notFound = matches.filter(m=>!m.matched);
+  const activeUpdates = toUpdate.filter(m=>!excluded.has(m.csvName));
+
+  const toggleRow = (csvName) => {
+    setExcluded(s=>{ const n=new Set(s); n.has(csvName)?n.delete(csvName):n.add(csvName); return n; });
+  };
+
+  const confidenceLabel = (score) => {
+    if (score >= 0.8) return { text:"Alta", color:"#059669" };
+    if (score >= 0.5) return { text:"Media", color:"#D97706" };
+    return { text:"Baja", color:"#DC2626" };
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:20,
+      fontFamily:"system-ui,sans-serif"}}>
+      <div style={{background:"white",borderRadius:14,width:"100%",maxWidth:580,
+        maxHeight:"85vh",display:"flex",flexDirection:"column",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+
+        <div style={{padding:"18px 20px",borderBottom:"1px solid #E2E8F0",
+          display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+          <div>
+            <div style={{fontSize:15,fontWeight:800,color:"#1E293B"}}>Importar CSV</div>
+            <div style={{fontSize:12,color:"#64748B",marginTop:2}}>
+              {activeUpdates.length} de {toUpdate.length} partners se actualizarán · {notFound.length} no reconocidos
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"#F1F5F9",border:"none",
+            borderRadius:"50%",width:30,height:30,cursor:"pointer",fontSize:16,
+            display:"flex",alignItems:"center",justifyContent:"center",color:"#64748B"}}>×</button>
+        </div>
+
+        <div style={{overflowY:"auto",flex:1,padding:"12px 20px"}}>
+          {toUpdate.length > 0 && (
+            <>
+              <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",
+                letterSpacing:"0.06em",marginBottom:8}}>Partners encontrados — click para excluir</div>
+              {toUpdate.map((m,i)=>{
+                const isExcluded = excluded.has(m.csvName);
+                const conf = confidenceLabel(m.score);
+                return (
+                  <div key={i} onClick={()=>toggleRow(m.csvName)}
+                    style={{display:"flex",alignItems:"center",gap:10,
+                      padding:"10px 12px",
+                      background:isExcluded?"#F8FAFC":"#F0FDF4",
+                      border:`1px solid ${isExcluded?"#E2E8F0":"#BBF7D0"}`,
+                      borderRadius:8,marginBottom:6,cursor:"pointer",
+                      opacity:isExcluded?0.5:1,transition:"all 0.15s"}}>
+                    <span style={{fontSize:14,flexShrink:0}}>{isExcluded?"⬜":"✅"}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#1E293B",
+                        whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                        {m.partner.name}
+                      </div>
+                      <div style={{fontSize:10,color:"#64748B"}}>
+                        CSV: "{m.csvName}" ·{" "}
+                        <span style={{color:conf.color,fontWeight:700}}>
+                          Confianza {conf.text} ({Math.round(m.score*100)}%)
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontSize:11,color:"#94A3B8",textDecoration:"line-through"}}>
+                        €{Math.round((m.partner.arr||0)/1000)}k
+                      </div>
+                      <div style={{fontSize:13,fontWeight:800,color:"#059669"}}>
+                        €{Math.round(m.arr/1000)}k
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {notFound.length > 0 && (
+            <>
+              <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",
+                letterSpacing:"0.06em",marginBottom:8,marginTop:16}}>No reconocidos en la app</div>
+              {notFound.map((m,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10,
+                  padding:"8px 12px",background:"#FEF9F0",border:"1px solid #FDE68A",
+                  borderRadius:8,marginBottom:4}}>
+                  <span style={{fontSize:13}}>⚠️</span>
+                  <div style={{flex:1}}>
+                    <span style={{fontSize:11,color:"#92400E"}}>{m.csvName}</span>
+                    {m.arr!==null && <span style={{fontSize:11,color:"#94A3B8",marginLeft:8}}>ARR: €{Math.round(m.arr/1000)}k</span>}
+                  </div>
+                </div>
+              ))}
+              <div style={{fontSize:11,color:"#94A3B8",marginTop:6,fontStyle:"italic"}}>
+                Estos no se actualizarán. Añádelos manualmente si corresponden a partners activos.
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={{padding:"14px 20px",borderTop:"1px solid #E2E8F0",
+          display:"flex",gap:8,flexShrink:0}}>
+          <button onClick={()=>onConfirm(activeUpdates.map(m=>({id:m.partner.id,fields:{arr:m.arr}})))}
+            disabled={activeUpdates.length===0}
+            style={{flex:1,background:activeUpdates.length?"#1E3A8A":"#E2E8F0",
+              color:activeUpdates.length?"white":"#94A3B8",border:"none",borderRadius:8,
+              padding:"11px",fontSize:13,fontWeight:700,
+              cursor:activeUpdates.length?"pointer":"default"}}>
+            Confirmar actualización ({activeUpdates.length} partners)
+          </button>
+          <button onClick={onClose} style={{background:"#F1F5F9",color:"#64748B",
+            border:"none",borderRadius:8,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer",minWidth:90}}>
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState(()=>loadSession());
 
@@ -2241,6 +2443,23 @@ function AppInner({ session, onLogout }) {
       prospects: d.prospects.filter(p=>p.id!==id),
     }));
     setSelected(null);
+  },[]);
+
+  const handleCsvConfirm = useCallback((updates)=>{
+    setData(d=>{
+      const np = d.partners.map(p=>{
+        const u = updates.find(x=>x.id===p.id);
+        return u ? {...p,...u.fields} : p;
+      });
+      return {...d, partners:np};
+    });
+    // Refresh selected panel if it was one of the updated partners
+    setSelected(s=>{
+      if (!s) return s;
+      const u = updates.find(x=>x.id===s.id);
+      return u ? {...s,...u.fields} : s;
+    });
+    setModal(null);
   },[]);
 
   if(!data) return (
@@ -2363,7 +2582,7 @@ function AppInner({ session, onLogout }) {
           onUpdate={updateEntity} onAddUpdate={addUpdate}
           onPromote={promoteProspect} onDelete={deleteEntity} isMobile={true}/>
       )}
-      {modal && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
+      {modal?.type==="csv" && <CsvImportModal content={modal.content} partners={data.partners} onClose={()=>setModal(null)} onConfirm={handleCsvConfirm}/>}{(modal==="active"||modal==="prospect") && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
     </div>
   );
 
@@ -2439,6 +2658,20 @@ function AppInner({ session, onLogout }) {
           padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
           + Prospecto
         </button>
+        <label style={{background:"rgba(255,255,255,0.12)",color:"white",
+          border:"1px solid rgba(255,255,255,0.25)",borderRadius:5,
+          padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer",
+          display:"flex",alignItems:"center",gap:4}}>
+          📥 Importar CSV
+          <input type="file" accept=".csv" style={{display:"none"}}
+            onChange={e=>{
+              const file=e.target.files[0]; if(!file) return;
+              const reader=new FileReader();
+              reader.onload=ev=>setModal({type:"csv",content:ev.target.result});
+              reader.readAsText(file,"UTF-8");
+              e.target.value="";
+            }}/>
+        </label>
         <div style={{width:1,height:20,background:"rgba(255,255,255,0.15)"}}/>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:26,height:26,background:"rgba(255,255,255,0.15)",borderRadius:"50%",
@@ -2656,7 +2889,7 @@ function AppInner({ session, onLogout }) {
           onUpdate={updateEntity} onAddUpdate={addUpdate}
           onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
       )}
-      {modal && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
+      {modal?.type==="csv" && <CsvImportModal content={modal.content} partners={data.partners} onClose={()=>setModal(null)} onConfirm={handleCsvConfirm}/>}{(modal==="active"||modal==="prospect") && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
       </>}
     </div>
   );
