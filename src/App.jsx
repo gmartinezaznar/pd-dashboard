@@ -2207,52 +2207,96 @@ function parseCSV(text) {
   return rows;
 }
 
-function CsvImportModal({ content, partners, onClose, onConfirm }) {
+function CsvImportModal({ content, partners, savedAliases, onClose, onConfirm }) {
   const rows = useMemo(()=>parseCSV(content),[content]);
   const [excluded, setExcluded] = useState(new Set());
+  // manualMap: { csvName → partnerId } for unmatched rows
+  const [manualMap, setManualMap] = useState(()=>{
+    // Pre-fill from saved aliases
+    const init = {};
+    if (savedAliases) {
+      rows.forEach(row=>{
+        const csvName = row["distribuidor"]||row["partner"]||row["nombre"]||Object.values(row)[0]||"";
+        if (savedAliases[csvName]) init[csvName] = savedAliases[csvName];
+      });
+    }
+    return init;
+  });
 
   const matches = useMemo(()=>{
     return rows.map(row=>{
-      const csvName = row["distribuidor"] || row["partner"] || row["nombre"] || Object.values(row)[0] || "";
+      const csvName = row["distribuidor"]||row["partner"]||row["nombre"]||Object.values(row)[0]||"";
       const arrVal = parseFloat((row["arr"]||"").replace(",","."));
 
-      let best = null, bestScore = 0;
-      for (const p of partners) {
-        const score = fuzzyScore(csvName, p.name);
-        if (score > bestScore) { bestScore=score; best=p; }
+      // Check saved aliases first
+      if (savedAliases[csvName]) {
+        const p = partners.find(x=>x.id===savedAliases[csvName]);
+        if (p) return { csvName, arr:isNaN(arrVal)?null:Math.round(arrVal), partner:p, score:1, matched:true, isAlias:true };
       }
 
-      const matched = bestScore >= 0.35;
+      let best=null, bestScore=0;
+      for (const p of partners) {
+        const score = fuzzyScore(csvName, p.name);
+        if (score>bestScore) { bestScore=score; best=p; }
+      }
+      const matched = bestScore>=0.35;
       return {
         csvName,
-        arr: isNaN(arrVal) ? null : Math.round(arrVal),
-        partner: matched ? best : null,
+        arr: isNaN(arrVal)?null:Math.round(arrVal),
+        partner: matched?best:null,
         score: bestScore,
         matched,
       };
     }).filter(r=>r.csvName);
-  },[rows, partners]);
+  },[rows,partners,savedAliases]);
 
   const toUpdate = matches.filter(m=>m.matched && m.arr!==null);
   const notFound = matches.filter(m=>!m.matched);
-  const activeUpdates = toUpdate.filter(m=>!excluded.has(m.csvName));
+
+  // Manually assigned rows (from notFound)
+  const manualUpdates = notFound
+    .filter(m=>manualMap[m.csvName] && m.arr!==null)
+    .map(m=>({
+      ...m,
+      partner: partners.find(p=>p.id===manualMap[m.csvName]),
+      score: 1,
+      matched: true,
+      isManual: true,
+    }))
+    .filter(m=>m.partner);
+
+  const activeUpdates = [
+    ...toUpdate.filter(m=>!excluded.has(m.csvName)),
+    ...manualUpdates.filter(m=>!excluded.has(m.csvName)),
+  ];
+
+  // New aliases from this session (for saving)
+  const newAliases = Object.fromEntries(
+    Object.entries(manualMap).filter(([csvName])=>
+      notFound.some(m=>m.csvName===csvName)
+    )
+  );
 
   const toggleRow = (csvName) => {
     setExcluded(s=>{ const n=new Set(s); n.has(csvName)?n.delete(csvName):n.add(csvName); return n; });
   };
 
-  const confidenceLabel = (score) => {
-    if (score >= 0.8) return { text:"Alta", color:"#059669" };
-    if (score >= 0.5) return { text:"Media", color:"#D97706" };
+  const confidenceLabel = (score, isManual, isAlias) => {
+    if (isAlias)  return { text:"Guardado", color:"#0891B2" };
+    if (isManual) return { text:"Manual",   color:"#7C3AED" };
+    if (score>=0.8) return { text:"Alta",   color:"#059669" };
+    if (score>=0.5) return { text:"Media",  color:"#D97706" };
     return { text:"Baja", color:"#DC2626" };
   };
+
+  const allUpdates = [...toUpdate, ...manualUpdates];
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,
       display:"flex",alignItems:"center",justifyContent:"center",padding:20,
       fontFamily:"system-ui,sans-serif"}}>
-      <div style={{background:"white",borderRadius:14,width:"100%",maxWidth:580,
-        maxHeight:"85vh",display:"flex",flexDirection:"column",
+      <div style={{background:"white",borderRadius:14,width:"100%",maxWidth:600,
+        maxHeight:"88vh",display:"flex",flexDirection:"column",
         boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
 
         <div style={{padding:"18px 20px",borderBottom:"1px solid #E2E8F0",
@@ -2260,7 +2304,7 @@ function CsvImportModal({ content, partners, onClose, onConfirm }) {
           <div>
             <div style={{fontSize:15,fontWeight:800,color:"#1E293B"}}>Importar CSV</div>
             <div style={{fontSize:12,color:"#64748B",marginTop:2}}>
-              {activeUpdates.length} de {toUpdate.length} partners se actualizarán · {notFound.length} no reconocidos
+              {activeUpdates.length} partners se actualizarán · {notFound.length - manualUpdates.length} sin asignar
             </div>
           </div>
           <button onClick={onClose} style={{background:"#F1F5F9",border:"none",
@@ -2269,22 +2313,23 @@ function CsvImportModal({ content, partners, onClose, onConfirm }) {
         </div>
 
         <div style={{overflowY:"auto",flex:1,padding:"12px 20px"}}>
-          {toUpdate.length > 0 && (
+
+          {/* Auto-matched */}
+          {allUpdates.length > 0 && (
             <>
               <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",
-                letterSpacing:"0.06em",marginBottom:8}}>Partners encontrados — click para excluir</div>
-              {toUpdate.map((m,i)=>{
+                letterSpacing:"0.06em",marginBottom:8}}>Se actualizarán — click para excluir</div>
+              {allUpdates.map((m,i)=>{
                 const isExcluded = excluded.has(m.csvName);
-                const conf = confidenceLabel(m.score);
+                const conf = confidenceLabel(m.score, m.isManual, m.isAlias);
                 return (
                   <div key={i} onClick={()=>toggleRow(m.csvName)}
-                    style={{display:"flex",alignItems:"center",gap:10,
-                      padding:"10px 12px",
-                      background:isExcluded?"#F8FAFC":"#F0FDF4",
-                      border:`1px solid ${isExcluded?"#E2E8F0":"#BBF7D0"}`,
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+                      background:isExcluded?"#F8FAFC":m.isManual?"#F5F3FF":"#F0FDF4",
+                      border:`1px solid ${isExcluded?"#E2E8F0":m.isManual?"#DDD6FE":"#BBF7D0"}`,
                       borderRadius:8,marginBottom:6,cursor:"pointer",
                       opacity:isExcluded?0.5:1,transition:"all 0.15s"}}>
-                    <span style={{fontSize:14,flexShrink:0}}>{isExcluded?"⬜":"✅"}</span>
+                    <span style={{fontSize:14,flexShrink:0}}>{isExcluded?"⬜":m.isManual?"🔗":"✅"}</span>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:12,fontWeight:700,color:"#1E293B",
                         whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
@@ -2292,8 +2337,8 @@ function CsvImportModal({ content, partners, onClose, onConfirm }) {
                       </div>
                       <div style={{fontSize:10,color:"#64748B"}}>
                         CSV: "{m.csvName}" ·{" "}
-                        <span style={{color:conf.color,fontWeight:700}}>
-                          Confianza {conf.text} ({Math.round(m.score*100)}%)
+                        <span style={{color:conf.color,fontWeight:700}}>{conf.text}
+                          {!m.isManual && ` (${Math.round(m.score*100)}%)`}
                         </span>
                       </div>
                     </div>
@@ -2311,31 +2356,60 @@ function CsvImportModal({ content, partners, onClose, onConfirm }) {
             </>
           )}
 
-          {notFound.length > 0 && (
+          {/* Unmatched — with assignment dropdown */}
+          {notFound.filter(m=>!manualMap[m.csvName]).length > 0 && (
             <>
               <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",
-                letterSpacing:"0.06em",marginBottom:8,marginTop:16}}>No reconocidos en la app</div>
-              {notFound.map((m,i)=>(
+                letterSpacing:"0.06em",marginBottom:8,marginTop:16}}>
+                Sin asignar — selecciona partner manualmente
+              </div>
+              {notFound.filter(m=>!manualMap[m.csvName]).map((m,i)=>(
                 <div key={i} style={{display:"flex",alignItems:"center",gap:10,
-                  padding:"8px 12px",background:"#FEF9F0",border:"1px solid #FDE68A",
-                  borderRadius:8,marginBottom:4}}>
-                  <span style={{fontSize:13}}>⚠️</span>
-                  <div style={{flex:1}}>
-                    <span style={{fontSize:11,color:"#92400E"}}>{m.csvName}</span>
-                    {m.arr!==null && <span style={{fontSize:11,color:"#94A3B8",marginLeft:8}}>ARR: €{Math.round(m.arr/1000)}k</span>}
+                  padding:"10px 12px",background:"#FEF9F0",border:"1px solid #FDE68A",
+                  borderRadius:8,marginBottom:6}}>
+                  <span style={{fontSize:13,flexShrink:0}}>⚠️</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#92400E",
+                      whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.csvName}</div>
+                    {m.arr!==null && <div style={{fontSize:10,color:"#94A3B8"}}>ARR: €{Math.round(m.arr/1000)}k</div>}
                   </div>
+                  <select
+                    value={manualMap[m.csvName]||""}
+                    onChange={e=>{
+                      const val=e.target.value;
+                      setManualMap(prev=>val?{...prev,[m.csvName]:val}:Object.fromEntries(Object.entries(prev).filter(([k])=>k!==m.csvName)));
+                    }}
+                    onClick={e=>e.stopPropagation()}
+                    style={{border:"1px solid #FDE68A",borderRadius:6,padding:"5px 8px",
+                      fontSize:11,color:"#374151",background:"white",cursor:"pointer",
+                      maxWidth:180,flexShrink:0}}>
+                    <option value="">— Asignar partner —</option>
+                    {[...partners].sort((a,b)=>a.name.localeCompare(b.name,"es")).map(p=>(
+                      <option key={p.id} value={p.id}>{p.name.split(" ").slice(0,3).join(" ")}</option>
+                    ))}
+                  </select>
                 </div>
               ))}
-              <div style={{fontSize:11,color:"#94A3B8",marginTop:6,fontStyle:"italic"}}>
-                Estos no se actualizarán. Añádelos manualmente si corresponden a partners activos.
-              </div>
             </>
+          )}
+
+          {/* Saved aliases note */}
+          {Object.keys(newAliases).length > 0 && (
+            <div style={{marginTop:12,padding:"8px 12px",background:"#EEF2FF",borderRadius:8,
+              fontSize:11,color:"#4338CA",display:"flex",alignItems:"center",gap:6}}>
+              <span>💾</span>
+              <span>Las {Object.keys(newAliases).length} asignaciones manuales se recordarán para la próxima importación.</span>
+            </div>
           )}
         </div>
 
         <div style={{padding:"14px 20px",borderTop:"1px solid #E2E8F0",
           display:"flex",gap:8,flexShrink:0}}>
-          <button onClick={()=>onConfirm(activeUpdates.map(m=>({id:m.partner.id,fields:{arr:m.arr}})))}
+          <button
+            onClick={()=>onConfirm(
+              activeUpdates.map(m=>({id:m.partner.id,fields:{arr:m.arr}})),
+              newAliases
+            )}
             disabled={activeUpdates.length===0}
             style={{flex:1,background:activeUpdates.length?"#1E3A8A":"#E2E8F0",
               color:activeUpdates.length?"white":"#94A3B8",border:"none",borderRadius:8,
@@ -2344,7 +2418,8 @@ function CsvImportModal({ content, partners, onClose, onConfirm }) {
             Confirmar actualización ({activeUpdates.length} partners)
           </button>
           <button onClick={onClose} style={{background:"#F1F5F9",color:"#64748B",
-            border:"none",borderRadius:8,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer",minWidth:90}}>
+            border:"none",borderRadius:8,padding:"11px",fontSize:13,fontWeight:600,
+            cursor:"pointer",minWidth:90}}>
             Cancelar
           </button>
         </div>
@@ -2445,15 +2520,16 @@ function AppInner({ session, onLogout }) {
     setSelected(null);
   },[]);
 
-  const handleCsvConfirm = useCallback((updates)=>{
+  const handleCsvConfirm = useCallback((updates, newAliases)=>{
     setData(d=>{
       const np = d.partners.map(p=>{
         const u = updates.find(x=>x.id===p.id);
         return u ? {...p,...u.fields} : p;
       });
-      return {...d, partners:np};
+      // Merge new aliases into saved aliases
+      const mergedAliases = {...(d.csvAliases||{}), ...newAliases};
+      return {...d, partners:np, csvAliases:mergedAliases};
     });
-    // Refresh selected panel if it was one of the updated partners
     setSelected(s=>{
       if (!s) return s;
       const u = updates.find(x=>x.id===s.id);
@@ -2582,7 +2658,7 @@ function AppInner({ session, onLogout }) {
           onUpdate={updateEntity} onAddUpdate={addUpdate}
           onPromote={promoteProspect} onDelete={deleteEntity} isMobile={true}/>
       )}
-      {modal?.type==="csv" && <CsvImportModal content={modal.content} partners={data.partners} onClose={()=>setModal(null)} onConfirm={handleCsvConfirm}/>}{(modal==="active"||modal==="prospect") && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
+      {modal?.type==="csv" && <CsvImportModal content={modal.content} partners={data.partners} savedAliases={data.csvAliases||{}} onClose={()=>setModal(null)} onConfirm={handleCsvConfirm}/>}{(modal==="active"||modal==="prospect") && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
     </div>
   );
 
@@ -2889,7 +2965,7 @@ function AppInner({ session, onLogout }) {
           onUpdate={updateEntity} onAddUpdate={addUpdate}
           onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
       )}
-      {modal?.type==="csv" && <CsvImportModal content={modal.content} partners={data.partners} onClose={()=>setModal(null)} onConfirm={handleCsvConfirm}/>}{(modal==="active"||modal==="prospect") && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
+      {modal?.type==="csv" && <CsvImportModal content={modal.content} partners={data.partners} savedAliases={data.csvAliases||{}} onClose={()=>setModal(null)} onConfirm={handleCsvConfirm}/>}{(modal==="active"||modal==="prospect") && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
       </>}
     </div>
   );
