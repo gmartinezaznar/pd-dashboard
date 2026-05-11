@@ -361,21 +361,35 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
     return ()=>{ cancelled=true; };
   },[]);
 
-  // Build province → [partners] lookup (supports multiple)
+  // Build province → [partners] lookup — primary and secondary
   const provMap = {};
-  [...partners,...prospects].forEach(p=>(p.provinces||[]).forEach(pv=>{
-    if (!provMap[pv]) provMap[pv] = [];
-    provMap[pv].push(p);
-  }));
+  const provMapSecondary = {};
+  [...partners,...prospects].forEach(p=>{
+    (p.provinces||[]).forEach(pv=>{
+      if (!provMap[pv]) provMap[pv] = [];
+      provMap[pv].push(p);
+    });
+    (p.provincesSecondary||[]).forEach(pv=>{
+      if (!provMapSecondary[pv]) provMapSecondary[pv] = [];
+      provMapSecondary[pv].push(p);
+    });
+  });
 
   // Density color scale: 0=gray, 1=light blue … 4+=dark blue
   const DENSITY = ["#E2E8F0","#BFDBFE","#60A5FA","#2563EB","#1E3A8A"];
-  const getProvColor = (norm) => DENSITY[Math.min((provMap[norm]||[]).length, DENSITY.length-1)];
+  const getProvColor = (norm) => {
+    const primary = (provMap[norm]||[]).length;
+    if (primary > 0) return DENSITY[Math.min(primary, DENSITY.length-1)];
+    // secondary only → use density color but will add hatch
+    const secondary = (provMapSecondary[norm]||[]).length;
+    return DENSITY[Math.min(secondary, DENSITY.length-1)];
+  };
+  const isSecondaryOnly = (norm) => !(provMap[norm]||[]).length && (provMapSecondary[norm]||[]).length > 0;
 
   const handleClick = (norm, e) => {
     e.stopPropagation();
     if (tooltip?.norm === norm) { setTooltip(null); return; }
-    const ps = provMap[norm] || [];
+    const ps = [...(provMap[norm]||[]), ...(provMapSecondary[norm]||[]).map(p=>({...p,_secondary:true}))];
     if (!ps.length) { setTooltip(null); return; }
     const rect = containerRef.current?.getBoundingClientRect();
     const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
@@ -416,13 +430,15 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
     const label = norm.length>11 ? norm.substring(0,10)+"." : norm;
     const hasHighlight = selected || hovered || geoHighlight;
     const isHighlighted = isSelected || isHovered || isGeoHL;
+    const secondaryOnly = isSecondaryOnly(norm);
     const activeFill = isGeoHL ? "#FEF08A" : (isHighlighted ? HIGHLIGHT_COLOR : fill);
+    const hatchIdx = secondaryOnly ? Math.min((provMapSecondary[norm]||[]).length, DENSITY.length-1) : 0;
     return (
       <g key={`${i}-${norm}`}
         onClick={(e) => handleClick(norm, e)}
-        style={{cursor: ps.length ? "pointer" : "default"}}>
+        style={{cursor: (ps.length||(provMapSecondary[norm]||[]).length) ? "pointer" : "default"}}>
         <path d={d}
-          fill={activeFill}
+          fill={isHighlighted ? HIGHLIGHT_COLOR : (secondaryOnly ? `url(#hatch-${hatchIdx})` : fill)}
           opacity={hasHighlight && !isHighlighted ? 0.25 : 1}
           stroke="rgba(255,255,255,0.4)"
           strokeWidth={0.6}
@@ -438,6 +454,14 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
       <svg ref={svgRef} viewBox={`0 0 ${dims.w} ${dims.h}`}
         style={{width:"100%",height:"100%",display:"block"}}
         onClick={()=>setTooltip(null)}>
+        <defs>
+          {DENSITY.slice(1).map((color,i)=>(
+            <pattern key={i} id={`hatch-${i+1}`} patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+              <rect width="6" height="6" fill={color} opacity="0.35"/>
+              <line x1="0" y1="0" x2="0" y2="6" stroke="#94A3B8" strokeWidth="1.5"/>
+            </pattern>
+          ))}
+        </defs>
         <rect width={dims.w} height={dims.h} fill="#DBEAFE" rx="8"/>
 
         {loading && (
@@ -620,9 +644,10 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
                 <div style={{width:8,height:8,borderRadius:2,
                     background:levelColor(p),flexShrink:0}}/>
                 <span style={{fontSize:11,color:"rgba(255,255,255,0.85)",fontWeight:500,
-                  whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                  whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:1}}>
                   {p.name.split(" ").slice(0,3).join(" ")}
                 </span>
+                {p._secondary && <span style={{fontSize:9,color:"#94A3B8",flexShrink:0}}>2ª</span>}
               </div>
             ))}
           </div>
@@ -653,6 +678,13 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
             <span style={{fontSize:10,color:"#475569",fontWeight:500}}>{item.l}</span>
           </div>
         ))}
+        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingTop:4,
+          borderTop:"1px solid #E2E8F0"}}>
+          <div style={{width:14,height:9,borderRadius:2,flexShrink:0,overflow:"hidden",
+            background:"repeating-linear-gradient(45deg,#E2E8F0,#E2E8F0 2px,#BFDBFE 2px,#BFDBFE 4px)",
+            border:"1px solid rgba(0,0,0,0.07)"}}/>
+          <span style={{fontSize:10,color:"#475569",fontWeight:500}}>Solo secundaria</span>
+        </div>
       </div>
     </div>
   );
@@ -1250,7 +1282,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   const [infoForm, setInfoForm] = useState({
     name: entity.name||"", city: entity.city||"",
     address: entity.address||"", website: entity.website||"", cif: entity.cif||"",
-    since: entity.since||"",
+    since: entity.since||"", phone: entity.phone||"", email: entity.email||"",
   });
   const [kpiForm, setKpiForm] = useState({
     arr: entity.arr||0, accounts: entity.accounts||0, booking2026: entity.booking2026||0,
@@ -1259,7 +1291,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   const [kpiSaved, setKpiSaved] = useState(false);
 
   useEffect(()=>{
-    setInfoForm({name:entity.name||"",city:entity.city||"",address:entity.address||"",website:entity.website||"",cif:entity.cif||"",since:entity.since||""});
+    setInfoForm({name:entity.name||"",city:entity.city||"",address:entity.address||"",website:entity.website||"",cif:entity.cif||"",since:entity.since||"",phone:entity.phone||"",email:entity.email||""});
     setKpiForm({arr:entity.arr||0,accounts:entity.accounts||0,booking2026:entity.booking2026||0});
   },[entity.id]);
 
@@ -1274,10 +1306,48 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [lightboxPhoto, setLightboxPhoto] = useState(null);
+  const [confirmDeleteContact, setConfirmDeleteContact] = useState(null); // contact id
+
+  // Meeting state
+  const [showMeetingForm, setShowMeetingForm] = useState(false);
+  const REVO_TEAM = ["Toni","Gerard"];
+  const [meetingForm, setMeetingForm] = useState({
+    date: new Date().toISOString().split("T")[0],
+    type: "videollamada",
+    revoAttendees: [],
+    partnerAttendees: [],
+    otherAttendees: "",
+    topics: "",
+    nextSteps: "",
+    nextStepsDate: "",
+    attachment: null,
+  });
+  const resetMeetingForm = () => setMeetingForm({
+    date: new Date().toISOString().split("T")[0],
+    type: "videollamada",
+    revoAttendees: [],
+    partnerAttendees: [],
+    otherAttendees: "",
+    topics: "",
+    nextSteps: "",
+    nextStepsDate: "",
+    attachment: null,
+  });
+  const saveMeeting = () => {
+    if (!meetingForm.topics.trim()) return;
+    const meeting = {
+      id: "m"+Date.now(),
+      ...meetingForm,
+      createdAt: new Date().toISOString(),
+    };
+    onUpdate({...entity, meetings:[...(entity.meetings||[]), meeting]});
+    resetMeetingForm();
+    setShowMeetingForm(false);
+  };
 
   const tabs = isActive
-    ? [{id:"overview",l:"Resumen"},{id:"contacts",l:"Contactos"},{id:"updates",l:"Updates"}]
-    : [{id:"contacts",l:"Contactos"},{id:"updates",l:"Updates"}];
+    ? [{id:"overview",l:"Resumen"},{id:"contacts",l:"Contactos"},{id:"meetings",l:"Reuniones"},{id:"updates",l:"Updates"}]
+    : [{id:"contacts",l:"Contactos"},{id:"meetings",l:"Reuniones"},{id:"updates",l:"Updates"}];
 
   const [reminderDate, setReminderDate]   = useState("");
   const [reminderTime, setReminderTime]   = useState("");
@@ -1479,6 +1549,8 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                     {key:"city",   label:"Ciudad",         ph:"Ciudad principal"},
                     {key:"address",label:"Dirección",      ph:"Calle, número, CP"},
                     {key:"cif",    label:"CIF / NIF",      ph:"B12345678"},
+                    {key:"phone",  label:"Teléfono fijo",  ph:"+34 93 000 00 00"},
+                    {key:"email",  label:"Email de contacto", ph:"info@empresa.com"},
                     {key:"website",label:"Web",            ph:"https://"},
                   ].map(f=>(
                     <div key={f.key}>
@@ -1500,6 +1572,38 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                           fontSize:13,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
                     </div>
                   )}
+                </div>
+
+                {/* Locations */}
+                <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",
+                  letterSpacing:"0.06em",marginBottom:8,marginTop:4}}>Oficinas / Ubicaciones</div>
+                <div style={{marginBottom:14}}>
+                  {(entity.locations||[]).map((loc,i)=>(
+                    <div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+                      <div style={{flex:1,display:"flex",gap:6}}>
+                        <input value={loc.name} placeholder="Nombre oficina"
+                          onChange={e=>{const locs=[...(entity.locations||[])];locs[i]={...locs[i],name:e.target.value};onUpdate({...entity,locations:locs});}}
+                          style={{flex:1,border:"1px solid #E2E8F0",borderRadius:6,padding:"7px 10px",
+                            fontSize:12,boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+                        <input value={loc.address} placeholder="Dirección"
+                          onChange={e=>{const locs=[...(entity.locations||[])];locs[i]={...locs[i],address:e.target.value};onUpdate({...entity,locations:locs});}}
+                          style={{flex:2,border:"1px solid #E2E8F0",borderRadius:6,padding:"7px 10px",
+                            fontSize:12,boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+                      </div>
+                      <button onClick={()=>{
+                        const locs=(entity.locations||[]).filter((_,j)=>j!==i);
+                        onUpdate({...entity,locations:locs});
+                      }} style={{background:"#FEF2F2",border:"none",borderRadius:6,padding:"6px 8px",
+                        fontSize:11,color:"#DC2626",cursor:"pointer",flexShrink:0}}>×</button>
+                    </div>
+                  ))}
+                  <button onClick={()=>{
+                    const locs=[...(entity.locations||[]),{name:"",address:""}];
+                    onUpdate({...entity,locations:locs});
+                  }} style={{width:"100%",background:"#F8FAFC",border:"1px dashed #CBD5E1",
+                    borderRadius:6,padding:"7px",fontSize:12,color:"#64748B",cursor:"pointer"}}>
+                    + Añadir ubicación
+                  </button>
                 </div>
                 <button onClick={()=>{saveInfo();setShowEditModal(false);}} style={{width:"100%",
                   background:hdr,color:"white",border:"none",borderRadius:8,
@@ -1589,6 +1693,8 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                   {icon:"📅", label:"Desde",    val:entity.since ? new Date(entity.since).getFullYear() : null},
                   {icon:"🔑", label:"CIF",      val:entity.cif},
                   {icon:"🏠", label:"Dirección",val:entity.address},
+                  {icon:"📞", label:"Teléfono", val:entity.phone},
+                  {icon:"✉️", label:"Email",    val:entity.email, isEmail:true},
                   {icon:"🌐", label:"Web",      val:entity.website, isLink:true},
                 ].filter(r=>r.val).map(r=>(
                   <div key={r.label} style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:12}}>
@@ -1596,15 +1702,32 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                     <span style={{color:"#94A3B8",fontWeight:600,flexShrink:0,width:60}}>{r.label}</span>
                     {r.isLink
                       ? <a href={entity.website} target="_blank" rel="noreferrer"
-                          style={{color:"#2563EB",textDecoration:"none",wordBreak:"break-all"}}>
-                          {entity.website}
-                        </a>
+                          style={{color:"#2563EB",textDecoration:"none",wordBreak:"break-all"}}>{entity.website}</a>
+                      : r.isEmail
+                      ? <a href={`mailto:${entity.email}`}
+                          style={{color:"#2563EB",textDecoration:"none",wordBreak:"break-all"}}>{entity.email}</a>
                       : <span style={{color:"#1E293B"}}>{r.val}</span>
                     }
                   </div>
                 ))}
-                {!entity.city && !entity.cif && !entity.website && !entity.address && !entity.since && (
+                {!entity.city && !entity.cif && !entity.website && !entity.address && !entity.since && !entity.phone && !entity.email && (
                   <span style={{fontSize:12,color:"#94A3B8"}}>Sin información. Usa ✏️ Editar para añadir.</span>
+                )}
+                {/* Locations */}
+                {(entity.locations||[]).length>0 && (
+                  <div style={{marginTop:6,paddingTop:8,borderTop:"1px solid #E2E8F0"}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",
+                      letterSpacing:"0.05em",marginBottom:6}}>Oficinas</div>
+                    {entity.locations.filter(l=>l.name||l.address).map((loc,i)=>(
+                      <div key={i} style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:4,fontSize:12}}>
+                        <span style={{fontSize:13,flexShrink:0}}>🏢</span>
+                        <div>
+                          {loc.name && <span style={{fontWeight:600,color:"#1E293B"}}>{loc.name}</span>}
+                          {loc.address && <span style={{color:"#64748B",marginLeft:loc.name?6:0}}>{loc.address}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
@@ -1627,31 +1750,79 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                       fontFamily:"system-ui,sans-serif",marginBottom:4}}/>
                   {filteredProv.length>0 && (
                     <div style={{border:"1px solid #E2E8F0",borderRadius:8,maxHeight:130,overflowY:"auto",marginBottom:6}}>
-                      {filteredProv.map(pv=>(
-                        <div key={pv} onClick={()=>{toggleProv(pv);setProvSearch("");}}
-                          style={{padding:"8px 12px",fontSize:13,cursor:"pointer",
-                            background:(entity.provinces||[]).includes(pv)?"#EEF2FF":"white",
-                            borderBottom:"1px solid #F8FAFC",color:"#1E293B"}}>
-                          {(entity.provinces||[]).includes(pv)?"✓ ":""}{pv}
-                        </div>
-                      ))}
+                      {filteredProv.map(pv=>{
+                        const isPrimary=(entity.provinces||[]).includes(pv);
+                        const isSecondary=(entity.provincesSecondary||[]).includes(pv);
+                        return (
+                          <div key={pv} style={{padding:"6px 12px",fontSize:13,cursor:"pointer",
+                            background:isPrimary?"#EEF2FF":isSecondary?"#F0FDF4":"white",
+                            borderBottom:"1px solid #F8FAFC",color:"#1E293B",
+                            display:"flex",justifyContent:"space-between",alignItems:"center"}}
+                            onClick={()=>{
+                              // cycle: none → primary → secondary → none
+                              if (!isPrimary && !isSecondary) {
+                                onUpdate({...entity,provinces:[...(entity.provinces||[]),pv]});
+                              } else if (isPrimary) {
+                                onUpdate({...entity,
+                                  provinces:(entity.provinces||[]).filter(x=>x!==pv),
+                                  provincesSecondary:[...(entity.provincesSecondary||[]),pv]});
+                              } else {
+                                onUpdate({...entity,
+                                  provincesSecondary:(entity.provincesSecondary||[]).filter(x=>x!==pv)});
+                              }
+                              setProvSearch("");
+                            }}>
+                            <span>{pv}</span>
+                            <span style={{fontSize:10,fontWeight:700,color:isPrimary?"#4F46E5":isSecondary?"#059669":"#94A3B8"}}>
+                              {isPrimary?"Principal":isSecondary?"Secundaria":"—"}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
+                  <div style={{fontSize:10,color:"#94A3B8",fontStyle:"italic"}}>
+                    Click una vez → Principal · Click dos veces → Secundaria · Click tres → Quitar
+                  </div>
                 </div>
               )}
-              <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                {(entity.provinces||[]).map(pv=>(
-                  <span key={pv} style={{background:"#E0E7FF",color:"#3730A3",fontSize:12,
-                    fontWeight:500,padding:"3px 10px",borderRadius:10,
-                    cursor:editField?"pointer":"default"}}
-                    onClick={()=>editField&&toggleProv(pv)}>
-                    {pv}{editField&&" ×"}
-                  </span>
-                ))}
-                {!(entity.provinces||[]).length && (
-                  <span style={{fontSize:12,color:"#94A3B8"}}>Sin territorios asignados</span>
-                )}
-              </div>
+              {/* Primary */}
+              {(entity.provinces||[]).length>0 && (
+                <div style={{marginBottom:6}}>
+                  <div style={{fontSize:9,fontWeight:700,color:"#4F46E5",textTransform:"uppercase",
+                    letterSpacing:"0.06em",marginBottom:4}}>Principal</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                    {(entity.provinces||[]).map(pv=>(
+                      <span key={pv} style={{background:"#E0E7FF",color:"#3730A3",fontSize:12,
+                        fontWeight:500,padding:"3px 10px",borderRadius:10,cursor:editField?"pointer":"default"}}
+                        onClick={()=>editField&&onUpdate({...entity,provinces:(entity.provinces||[]).filter(x=>x!==pv),
+                          provincesSecondary:[...(entity.provincesSecondary||[]),pv]})}>
+                        {pv}{editField&&" →"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Secondary */}
+              {(entity.provincesSecondary||[]).length>0 && (
+                <div>
+                  <div style={{fontSize:9,fontWeight:700,color:"#059669",textTransform:"uppercase",
+                    letterSpacing:"0.06em",marginBottom:4}}>Secundaria</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                    {(entity.provincesSecondary||[]).map(pv=>(
+                      <span key={pv} style={{background:"#DCFCE7",color:"#166534",fontSize:12,
+                        fontWeight:500,padding:"3px 10px",borderRadius:10,cursor:editField?"pointer":"default"}}
+                        onClick={()=>editField&&onUpdate({...entity,
+                          provincesSecondary:(entity.provincesSecondary||[]).filter(x=>x!==pv)})}>
+                        {pv}{editField&&" ×"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!(entity.provinces||[]).length && !(entity.provincesSecondary||[]).length && (
+                <span style={{fontSize:12,color:"#94A3B8"}}>Sin territorios asignados</span>
+              )}
             </div>
           </div>
         )}
@@ -1693,9 +1864,20 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                     <button onClick={()=>{setEditContact(c);setContactForm({name:c.name,role:c.role,email:c.email,phone:c.phone});setShowAddContact(true);}}
                       style={{background:"#EEF2FF",border:"none",borderRadius:6,padding:"4px 8px",
                         fontSize:11,color:"#4F46E5",cursor:"pointer",fontWeight:600}}>Editar</button>
-                    <button onClick={()=>onUpdate({...entity,contacts:(entity.contacts||[]).filter(x=>x.id!==c.id)})}
-                      style={{background:"#FEF2F2",border:"none",borderRadius:6,padding:"4px 8px",
-                        fontSize:11,color:"#DC2626",cursor:"pointer",fontWeight:600}}>×</button>
+                    {confirmDeleteContact===c.id ? (
+                      <>
+                        <button onClick={()=>{onUpdate({...entity,contacts:(entity.contacts||[]).filter(x=>x.id!==c.id)});setConfirmDeleteContact(null);}}
+                          style={{background:"#DC2626",color:"white",border:"none",borderRadius:6,padding:"4px 8px",
+                            fontSize:11,cursor:"pointer",fontWeight:600}}>Confirmar</button>
+                        <button onClick={()=>setConfirmDeleteContact(null)}
+                          style={{background:"#F1F5F9",border:"none",borderRadius:6,padding:"4px 8px",
+                            fontSize:11,color:"#64748B",cursor:"pointer"}}>Cancel</button>
+                      </>
+                    ) : (
+                      <button onClick={()=>setConfirmDeleteContact(c.id)}
+                        style={{background:"#FEF2F2",border:"none",borderRadius:6,padding:"4px 8px",
+                          fontSize:11,color:"#DC2626",cursor:"pointer",fontWeight:600}}>×</button>
+                    )}
                   </div>
                 </div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:12,paddingLeft:28}}>
@@ -1742,6 +1924,230 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                 padding:"12px",fontSize:13,color:"#64748B",cursor:"pointer",fontWeight:600}}>
                 + Añadir contacto
               </button>
+            )}
+          </div>
+        )}
+
+        {/* MEETINGS */}
+        {tab==="meetings" && (
+          <div>
+            {/* New meeting form */}
+            {showMeetingForm ? (
+              <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:10,padding:16,marginBottom:16}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:12}}>Nueva reunión</div>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {/* Date + Type */}
+                  <div style={{display:"flex",gap:8}}>
+                    <div style={{flex:1}}>
+                      <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                        letterSpacing:"0.05em",display:"block",marginBottom:3}}>Fecha</label>
+                      <input type="date" value={meetingForm.date}
+                        onChange={e=>setMeetingForm(f=>({...f,date:e.target.value}))}
+                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:7,padding:"8px 10px",
+                          fontSize:12,boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+                    </div>
+                    <div style={{flex:1}}>
+                      <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                        letterSpacing:"0.05em",display:"block",marginBottom:3}}>Tipo</label>
+                      <select value={meetingForm.type}
+                        onChange={e=>setMeetingForm(f=>({...f,type:e.target.value}))}
+                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:7,padding:"8px 10px",
+                          fontSize:12,fontFamily:"system-ui,sans-serif",background:"white"}}>
+                        {["Videollamada","Presencial","Llamada","Email"].map(t=>(
+                          <option key={t} value={t.toLowerCase()}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {/* Revo attendees */}
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                      letterSpacing:"0.05em",display:"block",marginBottom:5}}>Participantes Revo</label>
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                      {REVO_TEAM.map(name=>(
+                        <button key={name} onClick={()=>setMeetingForm(f=>({...f,
+                          revoAttendees:f.revoAttendees.includes(name)?f.revoAttendees.filter(x=>x!==name):[...f.revoAttendees,name]
+                        }))} style={{padding:"5px 12px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",
+                          border:"none",
+                          background:meetingForm.revoAttendees.includes(name)?"#1E3A8A":"#E2E8F0",
+                          color:meetingForm.revoAttendees.includes(name)?"white":"#64748B"}}>
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Partner attendees */}
+                  {(entity.contacts||[]).length>0 && (
+                    <div>
+                      <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                        letterSpacing:"0.05em",display:"block",marginBottom:5}}>Participantes partner</label>
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                        {(entity.contacts||[]).map(c=>(
+                          <button key={c.id} onClick={()=>setMeetingForm(f=>({...f,
+                            partnerAttendees:f.partnerAttendees.includes(c.id)?f.partnerAttendees.filter(x=>x!==c.id):[...f.partnerAttendees,c.id]
+                          }))} style={{padding:"5px 12px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",
+                            border:"none",
+                            background:meetingForm.partnerAttendees.includes(c.id)?"#7C3AED":"#E2E8F0",
+                            color:meetingForm.partnerAttendees.includes(c.id)?"white":"#64748B"}}>
+                            {c.name.split(" ")[0]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Other attendees */}
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                      letterSpacing:"0.05em",display:"block",marginBottom:3}}>Otros participantes</label>
+                    <input value={meetingForm.otherAttendees}
+                      onChange={e=>setMeetingForm(f=>({...f,otherAttendees:e.target.value}))}
+                      placeholder="Nombres adicionales…"
+                      style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:7,padding:"8px 10px",
+                        fontSize:12,boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+                  </div>
+                  {/* Topics */}
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                      letterSpacing:"0.05em",display:"block",marginBottom:3}}>Temas tratados *</label>
+                    <textarea value={meetingForm.topics} rows={3}
+                      onChange={e=>setMeetingForm(f=>({...f,topics:e.target.value}))}
+                      placeholder="Resumen de los temas tratados…"
+                      style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:7,padding:"8px 10px",
+                        fontSize:12,resize:"none",boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+                  </div>
+                  {/* Next steps */}
+                  <div style={{display:"flex",gap:8}}>
+                    <div style={{flex:2}}>
+                      <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                        letterSpacing:"0.05em",display:"block",marginBottom:3}}>Próximos pasos</label>
+                      <textarea value={meetingForm.nextSteps} rows={2}
+                        onChange={e=>setMeetingForm(f=>({...f,nextSteps:e.target.value}))}
+                        placeholder="Acciones acordadas…"
+                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:7,padding:"8px 10px",
+                          fontSize:12,resize:"none",boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+                    </div>
+                    <div style={{flex:1}}>
+                      <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                        letterSpacing:"0.05em",display:"block",marginBottom:3}}>Fecha límite</label>
+                      <input type="date" value={meetingForm.nextStepsDate}
+                        onChange={e=>setMeetingForm(f=>({...f,nextStepsDate:e.target.value}))}
+                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:7,padding:"8px 10px",
+                          fontSize:12,boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+                    </div>
+                  </div>
+                  {/* Attachment */}
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
+                      letterSpacing:"0.05em",display:"block",marginBottom:3}}>Adjunto</label>
+                    {meetingForm.attachment ? (
+                      <div style={{display:"flex",alignItems:"center",gap:8,background:"#F8FAFC",
+                        border:"1px solid #E2E8F0",borderRadius:7,padding:"7px 10px"}}>
+                        <span>📄</span>
+                        <span style={{fontSize:12,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {meetingForm.attachment.name}
+                        </span>
+                        <button onClick={()=>setMeetingForm(f=>({...f,attachment:null}))}
+                          style={{background:"none",border:"none",color:"#94A3B8",cursor:"pointer",fontSize:14}}>×</button>
+                      </div>
+                    ) : (
+                      <label style={{background:"#F8FAFC",border:"1px dashed #CBD5E1",borderRadius:7,
+                        padding:"7px 12px",fontSize:12,color:"#64748B",cursor:"pointer",display:"block"}}>
+                        📎 Adjuntar archivo
+                        <input type="file" style={{display:"none"}} accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.png"
+                          onChange={e=>{
+                            const file=e.target.files[0]; if(!file) return;
+                            const reader=new FileReader();
+                            reader.onload=ev=>setMeetingForm(f=>({...f,attachment:{name:file.name,data:ev.target.result}}));
+                            reader.readAsDataURL(file);
+                            e.target.value="";
+                          }}/>
+                      </label>
+                    )}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:14}}>
+                  <button onClick={saveMeeting} disabled={!meetingForm.topics.trim()}
+                    style={{flex:1,background:meetingForm.topics.trim()?hdr:"#E2E8F0",
+                      color:meetingForm.topics.trim()?"white":"#94A3B8",border:"none",borderRadius:8,
+                      padding:"10px",fontSize:13,fontWeight:700,cursor:meetingForm.topics.trim()?"pointer":"default"}}>
+                    Guardar reunión
+                  </button>
+                  <button onClick={()=>{setShowMeetingForm(false);resetMeetingForm();}}
+                    style={{flex:1,background:"#F1F5F9",color:"#64748B",border:"none",borderRadius:8,
+                      padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={()=>setShowMeetingForm(true)} style={{width:"100%",marginBottom:14,
+                background:"#F8FAFC",border:"1px dashed #CBD5E1",borderRadius:10,
+                padding:"12px",fontSize:13,color:"#64748B",cursor:"pointer",fontWeight:600}}>
+                + Nueva reunión
+              </button>
+            )}
+
+            {/* Meeting list */}
+            {[...(entity.meetings||[])].reverse().map((m,i)=>{
+              const typeIcon = {videollamada:"💻",presencial:"🤝",llamada:"📞",email:"✉️"}[m.type]||"📋";
+              const partnerNames = (m.partnerAttendees||[]).map(id=>(entity.contacts||[]).find(c=>c.id===id)?.name?.split(" ")[0]).filter(Boolean);
+              const allAttendees = [...(m.revoAttendees||[]),...partnerNames,...(m.otherAttendees?[m.otherAttendees]:[])];
+              return (
+                <div key={m.id||i} style={{background:"white",border:"1px solid #E2E8F0",
+                  borderRadius:10,padding:14,marginBottom:10,
+                  boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{fontSize:16}}>{typeIcon}</span>
+                      <div>
+                        <span style={{fontSize:12,fontWeight:700,color:"#1E293B"}}>
+                          {m.date ? new Date(m.date).toLocaleDateString("es-ES",{day:"numeric",month:"short",year:"numeric"}) : m.date}
+                        </span>
+                        <span style={{fontSize:11,color:"#94A3B8",marginLeft:6,textTransform:"capitalize"}}>{m.type}</span>
+                      </div>
+                    </div>
+                    <button onClick={()=>{
+                      if(!window.confirm("¿Eliminar esta reunión?")) return;
+                      onUpdate({...entity,meetings:(entity.meetings||[]).filter((_,j)=>j!==(entity.meetings.length-1-i))});
+                    }} style={{background:"none",border:"none",color:"#CBD5E1",cursor:"pointer",fontSize:14}}>🗑</button>
+                  </div>
+                  {allAttendees.length>0 && (
+                    <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+                      {allAttendees.map((name,j)=>(
+                        <span key={j} style={{fontSize:10,fontWeight:700,background:"#F1F5F9",
+                          color:"#475569",padding:"2px 7px",borderRadius:6}}>{name}</span>
+                      ))}
+                    </div>
+                  )}
+                  <p style={{margin:"0 0 6px",fontSize:12,color:"#374151",lineHeight:1.5}}>{m.topics}</p>
+                  {m.nextSteps && (
+                    <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:7,
+                      padding:"7px 10px",fontSize:11,color:"#166534",marginTop:6}}>
+                      <strong>Próximos pasos:</strong> {m.nextSteps}
+                      {m.nextStepsDate && <span style={{color:"#94A3B8",marginLeft:6}}>
+                        · {new Date(m.nextStepsDate).toLocaleDateString("es-ES",{day:"numeric",month:"short"})}
+                      </span>}
+                    </div>
+                  )}
+                  {m.attachment && (
+                    <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,background:"#F8FAFC",
+                      border:"1px solid #E2E8F0",borderRadius:7,padding:"6px 10px"}}>
+                      <span>📄</span>
+                      <span style={{fontSize:11,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#374151"}}>
+                        {m.attachment.name}
+                      </span>
+                      <button onClick={()=>{const a=document.createElement("a");a.href=m.attachment.data;a.download=m.attachment.name;a.click();}}
+                        style={{background:"#EEF2FF",border:"none",borderRadius:5,padding:"3px 8px",
+                          fontSize:10,fontWeight:600,color:"#4F46E5",cursor:"pointer",flexShrink:0}}>
+                        ⬇
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {!(entity.meetings||[]).length && !showMeetingForm && (
+              <div style={{textAlign:"center",color:"#94A3B8",fontSize:13,padding:"24px 0"}}>
+                Sin reuniones registradas
+              </div>
             )}
           </div>
         )}
