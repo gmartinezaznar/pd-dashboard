@@ -1,6 +1,99 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import * as d3 from "d3";
 
+// ── Design System ──────────────────────────────────────────────────────────
+const DS = {
+  // Colors
+  primary:    "#0F2D6B",   // deep navy — main brand
+  primaryMid: "#1E3A8A",   // Cegid blue — buttons, accents
+  primaryLight:"#EEF3FB",  // light blue tint — hover bg, tags
+  accent:     "#0066FF",   // bright blue — links, highlights
+  specialist: "#0891B2",   // teal — specialist level
+  success:    "#059669",
+  warning:    "#D97706",
+  danger:     "#DC2626",
+  prospect:   "#78716C",
+  // Neutrals
+  ink:        "#0F172A",   // headings
+  body:       "#334155",   // body text
+  muted:      "#64748B",   // secondary text
+  placeholder:"#94A3B8",
+  border:     "#E2E8F0",
+  borderMid:  "#CBD5E1",
+  surface:    "#F8FAFC",   // card backgrounds
+  surfaceMid: "#F1F5F9",
+  white:      "#FFFFFF",
+  bg:         "#F0F5FF",   // app background
+  // Typography scale
+  t10: "10px", t11: "11px", t12: "12px", t13: "13px",
+  t15: "15px", t18: "18px", t22: "22px",
+  // Radii
+  r4: "4px", r6: "6px", r8: "8px", r10: "10px", r12: "12px", r16: "16px",
+  // Shadows
+  shadowSm: "0 1px 3px rgba(15,45,107,0.06), 0 1px 2px rgba(15,45,107,0.04)",
+  shadowMd: "0 4px 12px rgba(15,45,107,0.08), 0 2px 4px rgba(15,45,107,0.05)",
+  shadowLg: "0 12px 32px rgba(15,45,107,0.12), 0 4px 8px rgba(15,45,107,0.06)",
+  // Inject global CSS
+  inject() {
+    if (document.getElementById("ds-global")) return;
+    const s = document.createElement("style");
+    s.id = "ds-global";
+    s.textContent = `
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; }
+      input, textarea, select, button { font-family: inherit; }
+      ::-webkit-scrollbar { width: 5px; height: 5px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+      ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+      .ds-card { background:#fff; border:1px solid #E2E8F0; border-radius:10px; box-shadow:0 1px 3px rgba(15,45,107,0.06); }
+      .ds-input { width:100%; border:1px solid #E2E8F0; border-radius:8px; padding:9px 12px; font-size:13px; color:#0F172A; outline:none; transition:border-color 0.15s, box-shadow 0.15s; }
+      .ds-input:focus { border-color:#0066FF; box-shadow:0 0 0 3px rgba(0,102,255,0.1); }
+      .ds-btn-primary { background:#1E3A8A; color:#fff; border:none; border-radius:8px; padding:10px 16px; font-size:13px; font-weight:700; cursor:pointer; transition:background 0.15s; }
+      .ds-btn-primary:hover { background:#0F2D6B; }
+      .ds-btn-secondary { background:#F1F5F9; color:#334155; border:none; border-radius:8px; padding:10px 16px; font-size:13px; font-weight:600; cursor:pointer; transition:background 0.15s; }
+      .ds-btn-secondary:hover { background:#E2E8F0; }
+      .ds-label { font-size:10px; font-weight:700; color:#64748B; text-transform:uppercase; letter-spacing:0.06em; display:block; margin-bottom:5px; }
+      .ds-tag { display:inline-flex; align-items:center; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; }
+    `;
+    document.head.appendChild(s);
+  }
+};
+DS.inject();
+
+// Level color helpers using DS
+function levelColor(e) {
+  if (!e) return DS.border;
+  if (e.type==="prospect") return DS.prospect;
+  return e.level==="premium" ? DS.primaryMid : DS.specialist;
+}
+function levelBg(e) {
+  if (!e||e.type==="prospect") {
+    if (e?.stage==="Parado") return "#FEE2E2";
+    return "#FEF3C7";
+  }
+  return e.level==="premium" ? DS.primaryLight : "#ECFEFF";
+}
+function levelText(e) {
+  if (!e||e.type==="prospect") {
+    if (e?.stage==="Parado") return DS.danger;
+    return DS.warning;
+  }
+  return e.level==="premium" ? DS.primaryMid : DS.specialist;
+}
+function levelLabel(e) {
+  if (!e) return "";
+  if (e.type==="prospect") return e.stage?.split(" ")[0]||"Prospecto";
+  return e.level==="premium" ? "Premium" : "Specialist";
+}
+function hdrColor(entity) {
+  if (!entity) return DS.primaryMid;
+  if (entity.type==="active") return entity.level==="premium" ? DS.primary : DS.specialist;
+  return DS.prospect;
+}
+
 // ── Supabase config ────────────────────────────────────────────────────────
 const SB_URL  = "https://yajtkaumgxnzarvslzgn.supabase.co";
 const SB_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhanRrYXVtZ3huemFydnNsemduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxOTA1NDcsImV4cCI6MjA4ODc2NjU0N30._QKK3rZtCYPuMO2l9j3lsOPa7gJ-hhp2Idzf_QBQgjs";
@@ -114,33 +207,6 @@ const ALL_PROVS = [
   // Extra
   "Andorra","Internacional",
 ];
-
-const PC = { premium:"#1E3A8A", specialist:"#0891B2", prospect:"#78716C", none:"#E2E8F0" };
-
-function levelColor(e) {
-  if (!e) return PC.none;
-  if (e.type === "prospect") return PC.prospect;
-  return e.level === "premium" ? PC.premium : PC.specialist;
-}
-function levelBg(e) {
-  if (!e || e.type==="prospect") {
-    if (e?.stage==="Parado") return "#FEE2E2";
-    return "#FEF3C7";
-  }
-  return e.level==="premium" ? "#EEF2FF" : "#ECFEFF";
-}
-function levelText(e) {
-  if (!e || e.type==="prospect") {
-    if (e?.stage==="Parado") return "#DC2626";
-    return "#B45309";
-  }
-  return e.level==="premium" ? "#3730A3" : "#0E7490";
-}
-function levelLabel(e) {
-  if (!e) return "";
-  if (e.type==="prospect") return e.stage?.split(" ")[0] || "Prospecto";
-  return e.level==="premium" ? "Premium" : "Specialist";
-}
 
 // ── Seed ──────────────────────────────────────────────────────────────────
 const SEED = {
@@ -1264,7 +1330,7 @@ function ImageLightbox({ src, onClose }) {
 // ── Detail Panel — shared desktop/mobile ───────────────────────────────────
 function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDelete, isMobile }) {
   const isActive = entity.type==="active";
-  const hdr = isActive&&entity.level==="premium" ? "#1E3A8A" : isActive ? "#0891B2" : "#78716C";
+  const hdr = hdrColor(entity);
   const [tab, setTab] = useState(isActive?"overview":"contacts");
   const [note, setNote] = useState("");
   const [author, setAuthor] = useState("");
@@ -1406,11 +1472,15 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   return (
     <div style={panelStyle}>
       {lightboxPhoto && <ImageLightbox src={lightboxPhoto} onClose={()=>setLightboxPhoto(null)}/>}
+
       {/* Header */}
-      <div style={{background:hdr,padding:isMobile?"16px 16px 0":"18px 20px 0",flexShrink:0}}>
+      <div style={{background:`linear-gradient(160deg, ${hdr} 0%, ${hdr}ee 100%)`,
+        padding:isMobile?"16px 16px 0":"16px 18px 0",flexShrink:0,
+        boxShadow:"inset 0 -1px 0 rgba(255,255,255,0.1)"}}>
+
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-          <div style={{flex:1}}>
-            {/* Editable status badge */}
+          <div style={{flex:1,minWidth:0}}>
+            {/* Status badge */}
             {editingStatus ? (
               <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
                 {(isActive
@@ -1418,79 +1488,91 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                   : ["Primer contacto","Negociación","Propuesta enviada","Contrato pendiente","Parado"].map(s=>({v:s,l:s}))
                 ).map(opt=>(
                   <button key={opt.v} onClick={()=>{
-                    onUpdate({...entity, ...(isActive?{level:opt.v}:{stage:opt.v})});
+                    onUpdate({...entity,...(isActive?{level:opt.v}:{stage:opt.v})});
                     setEditingStatus(false);
                   }} style={{
-                    background:((isActive?entity.level:entity.stage)===opt.v)?"white":"rgba(255,255,255,0.2)",
-                    color:((isActive?entity.level:entity.stage)===opt.v)?hdr:"white",
-                    border:"none",borderRadius:6,padding:"4px 10px",
+                    background:((isActive?entity.level:entity.stage)===opt.v)?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.15)",
+                    color:((isActive?entity.level:entity.stage)===opt.v)?hdr:"rgba(255,255,255,0.9)",
+                    border:"1px solid rgba(255,255,255,0.25)",borderRadius:6,padding:"4px 10px",
                     fontSize:11,fontWeight:700,cursor:"pointer"}}>
                     {opt.l}
                   </button>
                 ))}
-                <button onClick={()=>setEditingStatus(false)} style={{background:"rgba(255,255,255,0.1)",
-                  color:"rgba(255,255,255,0.7)",border:"none",borderRadius:6,
-                  padding:"4px 8px",fontSize:11,cursor:"pointer"}}>✕</button>
+                <button onClick={()=>setEditingStatus(false)} style={{
+                  background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.6)",
+                  border:"none",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>✕</button>
               </div>
             ) : (
               <button onClick={()=>setEditingStatus(true)} style={{
-                background:"rgba(255,255,255,0.2)",color:"white",fontSize:10,fontWeight:700,
-                padding:"3px 10px",borderRadius:10,textTransform:"uppercase",letterSpacing:"0.06em",
-                border:"1px dashed rgba(255,255,255,0.4)",cursor:"pointer",marginBottom:6,
+                background:"rgba(255,255,255,0.15)",color:"rgba(255,255,255,0.9)",
+                fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,
+                textTransform:"uppercase",letterSpacing:"0.06em",
+                border:"1px solid rgba(255,255,255,0.25)",cursor:"pointer",marginBottom:7,
                 display:"inline-flex",alignItems:"center",gap:4}}>
                 {isActive?entity.level:entity.stage||"Prospecto"} ✎
               </button>
             )}
+
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               {entity.logo && (
-                <img src={entity.logo} style={{width:36,height:36,borderRadius:8,
-                  objectFit:"contain",background:"rgba(255,255,255,0.15)",
-                  padding:4,flexShrink:0}}/>
+                <img src={entity.logo} style={{width:34,height:34,borderRadius:8,
+                  objectFit:"contain",background:"rgba(255,255,255,0.15)",padding:3,flexShrink:0}}/>
               )}
-              <div style={{fontSize:isMobile?16:15,fontWeight:800,color:"white",lineHeight:1.3}}>
+              <div style={{fontSize:isMobile?16:14,fontWeight:800,color:"white",lineHeight:1.25,
+                letterSpacing:"-0.01em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                 {entity.name}
               </div>
             </div>
-            <div style={{fontSize:12,color:"rgba(255,255,255,0.65)",marginTop:4,
+
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:5,
               display:"flex",alignItems:"center",flexWrap:"wrap",gap:8}}>
-              {entity.city}{isActive?` · desde ${entity.since?.split("-")[0]}`:""}
+              {entity.city}{isActive&&entity.since?` · desde ${entity.since.split("-")[0]}`:""}
               {!isActive && (
                 <button onClick={()=>setShowPromote(true)} style={{
-                  background:"#10B981",color:"white",border:"none",borderRadius:6,
-                  padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                  ↑ Convertir a distribuidor
+                  background:"rgba(16,185,129,0.9)",color:"white",border:"none",borderRadius:6,
+                  padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                  ↑ Convertir
                 </button>
               )}
             </div>
           </div>
-          <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0,marginLeft:8}}>
+
+          <div style={{display:"flex",gap:5,alignItems:"center",flexShrink:0,marginLeft:10}}>
             <button onClick={()=>setShowEditModal(true)} style={{
-              background:"rgba(255,255,255,0.18)",border:"1px solid rgba(255,255,255,0.35)",
-              color:"white",borderRadius:8,padding:"5px 11px",fontSize:11,fontWeight:700,
-              cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
-              ✏️ Editar
+              background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.25)",
+              color:"white",borderRadius:7,padding:"5px 10px",fontSize:11,fontWeight:600,
+              cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
+              ✏️ <span style={{fontSize:10}}>Editar</span>
             </button>
-            <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",
-              color:"white",width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:18,
-              display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <button onClick={onClose} style={{
+              background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.2)",
+              color:"white",width:30,height:30,borderRadius:"50%",cursor:"pointer",
+              fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>
               {isMobile?"←":"×"}
             </button>
           </div>
         </div>
-        <div style={{display:"flex",gap:2,overflowX:"auto"}}>
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:1,overflowX:"auto",marginTop:2}}>
           {tabs.map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)} style={{
-              background:tab===t.id?"white":"rgba(255,255,255,0.12)",
-              color:tab===t.id?hdr:"rgba(255,255,255,0.85)",
-              border:"none",borderRadius:"6px 6px 0 0",padding:isMobile?"9px 16px":"7px 14px",
-              fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+              background: tab===t.id ? "rgba(255,255,255,0.95)" : "transparent",
+              color: tab===t.id ? hdr : "rgba(255,255,255,0.65)",
+              border:"none",borderRadius:"6px 6px 0 0",
+              padding: isMobile?"9px 16px":"7px 14px",
+              fontSize: isMobile?13:11,fontWeight: tab===t.id?700:500,
+              cursor:"pointer",whiteSpace:"nowrap",
+              transition:"background 0.15s, color 0.15s",
+              letterSpacing:tab===t.id?"0":"-0.01em"}}>
               {t.l}
             </button>
           ))}
         </div>
       </div>
 
-      <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px":"18px 20px"}}>
+      <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px":"16px 18px",
+        background:DS.surface}}>
         {showPromote && <PromoteModal entity={entity} onClose={()=>setShowPromote(false)} onPromote={onPromote}/>}
 
         {/* EDIT MODAL */}
@@ -2434,28 +2516,34 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
 
 // ── Entity row (sidebar compact) ───────────────────────────────────────────
 function EntityRow({ e, selected, onClick, onHover, isMobile }) {
+  const [hov, setHov] = useState(false);
   return (
     <div onClick={onClick}
-      onMouseEnter={()=>onHover&&onHover(e)}
-      onMouseLeave={()=>onHover&&onHover(null)}
+      onMouseEnter={()=>{ setHov(true); onHover&&onHover(e); }}
+      onMouseLeave={()=>{ setHov(false); onHover&&onHover(null); }}
       style={{
-      padding:isMobile?"14px 16px":"9px 12px",
-      borderBottom:"1px solid #F1F5F9",cursor:"pointer",
-      background:selected?"#EEF2FF":"white",
-      borderLeft:`3px solid ${selected?"#1E3A8A":"transparent"}`,
-      transition:"background 0.1s"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6}}>
+        padding: isMobile?"14px 16px":"10px 14px",
+        borderBottom:`1px solid ${DS.surface}`,
+        cursor:"pointer",
+        background: selected ? DS.primaryLight : hov ? "#FAFBFF" : DS.white,
+        borderLeft:`3px solid ${selected?DS.primaryMid:"transparent"}`,
+        transition:"background 0.12s, border-color 0.12s",
+      }}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:isMobile?14:11,fontWeight:700,color:"#1E293B",
-            whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+          <div style={{fontSize:isMobile?14:12,fontWeight:600,color:DS.ink,
+            whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.3}}>
             {e.name}
           </div>
-          <div style={{fontSize:isMobile?12:10,color:"#94A3B8",marginTop:2}}>
-            {e.city}{e.type==="active"&&e.arr?` · €${Math.round(e.arr/1000)}k ARR`:""}
+          <div style={{fontSize:isMobile?12:10,color:DS.placeholder,marginTop:2,lineHeight:1}}>
+            {[e.city, e.type==="active"&&e.arr?`€${Math.round(e.arr/1000)}k`:null]
+              .filter(Boolean).join(" · ")}
           </div>
         </div>
-        <span style={{fontSize:isMobile?10:8,fontWeight:800,padding:"2px 6px",borderRadius:6,
-          flexShrink:0,background:levelBg(e),color:levelText(e)}}>
+        <span style={{
+          fontSize:isMobile?10:9,fontWeight:700,padding:"2px 7px",borderRadius:20,
+          flexShrink:0,marginTop:1,
+          background:levelBg(e),color:levelText(e),letterSpacing:"0.01em"}}>
           {levelLabel(e)}
         </span>
       </div>
@@ -2482,75 +2570,99 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A 0%,#1E3A8A 60%,#1d4ed8 100%)",
-      display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"system-ui,sans-serif"}}>
-      <div style={{width:"100%",maxWidth:380,padding:"0 20px"}}>
-        {/* Logo / Brand */}
-        <div style={{textAlign:"center",marginBottom:32}}>
+    <div style={{minHeight:"100vh",
+      background:`linear-gradient(150deg, ${DS.primary} 0%, #0D47A1 50%, #1565C0 100%)`,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+
+      {/* Subtle grid overlay */}
+      <div style={{position:"fixed",inset:0,opacity:0.04,pointerEvents:"none",
+        backgroundImage:"linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px)",
+        backgroundSize:"40px 40px"}}/>
+
+      <div style={{width:"100%",maxWidth:360,position:"relative",animation:"fadeIn 0.3s ease"}}>
+        {/* Brand */}
+        <div style={{textAlign:"center",marginBottom:36}}>
           <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
-            width:56,height:56,background:"rgba(255,255,255,0.12)",borderRadius:16,
-            backdropFilter:"blur(8px)",marginBottom:16,border:"1px solid rgba(255,255,255,0.2)"}}>
-            <span style={{fontSize:26}}>🗺</span>
+            width:52,height:52,background:"rgba(255,255,255,0.15)",borderRadius:14,
+            backdropFilter:"blur(10px)",marginBottom:14,
+            border:"1px solid rgba(255,255,255,0.25)",
+            boxShadow:"0 8px 24px rgba(0,0,0,0.2)"}}>
+            <span style={{fontSize:24}}>🗺</span>
           </div>
-          <div style={{fontSize:22,fontWeight:800,color:"white",letterSpacing:"-0.02em"}}>PD Dashboard</div>
-          <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginTop:4}}>Canal de Distribución · Cegid Revo</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#fff",letterSpacing:"-0.03em",
+            textShadow:"0 2px 8px rgba(0,0,0,0.2)"}}>PD Dashboard</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",marginTop:5,
+            fontWeight:500,letterSpacing:"0.02em"}}>
+            Canal de Distribución · Cegid Revo
+          </div>
         </div>
 
         {/* Card */}
-        <div style={{background:"rgba(255,255,255,0.06)",backdropFilter:"blur(16px)",
-          border:"1px solid rgba(255,255,255,0.12)",borderRadius:20,padding:28}}>
-          <div style={{fontSize:15,fontWeight:700,color:"white",marginBottom:20}}>Acceder</div>
+        <div style={{background:"rgba(255,255,255,0.07)",backdropFilter:"blur(20px)",
+          border:"1px solid rgba(255,255,255,0.14)",borderRadius:18,padding:"28px 28px 24px",
+          boxShadow:"0 20px 60px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.1)"}}>
 
-          <div style={{marginBottom:14}}>
-            <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",
-              textTransform:"uppercase",letterSpacing:"0.06em",display:"block",marginBottom:6}}>Usuario</label>
-            <input
-              value={username} onChange={e=>setUsername(e.target.value)}
+          <div style={{marginBottom:16}}>
+            <label style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.45)",
+              textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:6}}>
+              Usuario
+            </label>
+            <input value={username} onChange={e=>setUsername(e.target.value)}
               onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
-              placeholder="tu.nombre"
+              placeholder="tu.usuario"
               autoComplete="username"
-              style={{width:"100%",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",
-                borderRadius:10,padding:"11px 14px",fontSize:14,color:"white",boxSizing:"border-box",
-                outline:"none",fontFamily:"system-ui,sans-serif"}}/>
+              style={{width:"100%",background:"rgba(255,255,255,0.09)",
+                border:"1px solid rgba(255,255,255,0.16)",
+                borderRadius:10,padding:"11px 14px",fontSize:13,color:"#fff",
+                outline:"none",transition:"border 0.15s",
+                WebkitTextFillColor:"white"}}/>
           </div>
 
           <div style={{marginBottom:20,position:"relative"}}>
-            <label style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",
-              textTransform:"uppercase",letterSpacing:"0.06em",display:"block",marginBottom:6}}>Contraseña</label>
-            <input
-              type={showPw?"text":"password"}
+            <label style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.45)",
+              textTransform:"uppercase",letterSpacing:"0.08em",display:"block",marginBottom:6}}>
+              Contraseña
+            </label>
+            <input type={showPw?"text":"password"}
               value={password} onChange={e=>setPassword(e.target.value)}
               onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
               placeholder="••••••••"
               autoComplete="current-password"
-              style={{width:"100%",background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",
-                borderRadius:10,padding:"11px 40px 11px 14px",fontSize:14,color:"white",boxSizing:"border-box",
-                outline:"none",fontFamily:"system-ui,sans-serif"}}/>
+              style={{width:"100%",background:"rgba(255,255,255,0.09)",
+                border:"1px solid rgba(255,255,255,0.16)",
+                borderRadius:10,padding:"11px 40px 11px 14px",fontSize:13,color:"#fff",
+                outline:"none",transition:"border 0.15s"}}/>
             <button onClick={()=>setShowPw(v=>!v)}
-              style={{position:"absolute",right:12,top:34,background:"none",border:"none",
-                cursor:"pointer",color:"rgba(255,255,255,0.4)",fontSize:14,padding:0}}>
+              style={{position:"absolute",right:12,top:32,background:"none",border:"none",
+                cursor:"pointer",color:"rgba(255,255,255,0.35)",fontSize:13,padding:0,
+                lineHeight:1}}>
               {showPw?"🙈":"👁"}
             </button>
           </div>
 
           {error && (
-            <div style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",
-              borderRadius:8,padding:"9px 12px",fontSize:12,color:"#FCA5A5",marginBottom:14}}>
-              {error}
+            <div style={{background:"rgba(220,38,38,0.18)",border:"1px solid rgba(220,38,38,0.3)",
+              borderRadius:8,padding:"9px 12px",fontSize:12,color:"#FCA5A5",
+              marginBottom:16,display:"flex",alignItems:"center",gap:6}}>
+              <span>⚠</span> {error}
             </div>
           )}
 
           <button onClick={handleSubmit} disabled={loading}
-            style={{width:"100%",background:loading?"rgba(255,255,255,0.1)":"#2563EB",
-              color:"white",border:"none",borderRadius:10,padding:"13px",fontSize:14,
-              fontWeight:700,cursor:loading?"default":"pointer",transition:"background 0.15s",
-              letterSpacing:"0.01em"}}>
+            style={{width:"100%",
+              background: loading ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.95)",
+              color: loading ? "rgba(255,255,255,0.4)" : DS.primary,
+              border:"none",borderRadius:10,padding:"12px",fontSize:13,
+              fontWeight:800,cursor:loading?"default":"pointer",
+              transition:"all 0.15s",letterSpacing:"0.01em",
+              boxShadow: loading ? "none" : "0 4px 12px rgba(0,0,0,0.2)"}}>
             {loading ? "Verificando…" : "Entrar →"}
           </button>
         </div>
 
-        <div style={{textAlign:"center",marginTop:20,fontSize:11,color:"rgba(255,255,255,0.25)"}}>
-          Acceso restringido · Cegid Revo Channel
+        <div style={{textAlign:"center",marginTop:18,fontSize:10,
+          color:"rgba(255,255,255,0.2)",letterSpacing:"0.04em"}}>
+          ACCESO RESTRINGIDO · CEGID REVO CHANNEL
         </div>
       </div>
     </div>
@@ -3071,80 +3183,106 @@ function AppInner({ session, onLogout }) {
   // ── DESKTOP LAYOUT ─────────────────────────────────────────────────────
   return (
     <div style={{height:"100vh",display:"flex",flexDirection:"column",
-      fontFamily:"system-ui,sans-serif",background:"#F0F7FF"}}>
+      fontFamily:"-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif",
+      background:DS.bg}}>
 
       {/* Topbar */}
-      <div style={{background:"#1E3A8A",height:50,display:"flex",alignItems:"center",
-        padding:"0 20px",gap:16,flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{width:26,height:26,background:"white",borderRadius:5,
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>🗺</div>
-          <span style={{color:"white",fontWeight:800,fontSize:14}}>
-            PD Dashboard
-          </span>
+      <div style={{background:DS.primary,height:52,display:"flex",alignItems:"center",
+        padding:"0 20px",gap:12,flexShrink:0,
+        boxShadow:"0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.2)"}}>
+
+        {/* Brand */}
+        <div style={{display:"flex",alignItems:"center",gap:9,marginRight:4}}>
+          <div style={{width:28,height:28,background:"rgba(255,255,255,0.12)",borderRadius:7,
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,
+            border:"1px solid rgba(255,255,255,0.15)"}}>🗺</div>
+          <div>
+            <div style={{color:"white",fontWeight:800,fontSize:13,lineHeight:1.2,
+              letterSpacing:"-0.01em"}}>PD Dashboard</div>
+            <div style={{color:"rgba(255,255,255,0.35)",fontSize:9,fontWeight:600,
+              letterSpacing:"0.04em",textTransform:"uppercase"}}>Cegid Revo</div>
+          </div>
         </div>
-        <div style={{width:1,height:20,background:"rgba(255,255,255,0.15)"}}/>
-        {[{v:premCount,l:"Premium",c:"#93C5FD"},{v:spCount,l:"Specialist",c:"#BFDBFE"},
-          {v:prCount,l:"Prospectos",c:"#FCD34D"},
-          {v:"€"+Math.round(totalArr/1000)+"k",l:"ARR",c:"#6EE7B7"}].map(s=>(
-          <div key={s.l} style={{display:"flex",alignItems:"center",gap:4}}>
-            <span style={{fontSize:15,fontWeight:800,color:s.c}}>{s.v}</span>
-            <span style={{fontSize:10,color:"rgba(255,255,255,0.45)",fontWeight:600}}>{s.l}</span>
+
+        <div style={{width:1,height:22,background:"rgba(255,255,255,0.12)",margin:"0 4px"}}/>
+
+        {/* KPI pills */}
+        {[
+          {v:premCount,  l:"Premium",    c:"#93C5FD"},
+          {v:spCount,    l:"Specialist", c:"#67E8F9"},
+          {v:prCount,    l:"Prospectos", c:"#FDE68A"},
+          {v:"€"+Math.round(totalArr/1000)+"k", l:"ARR", c:"#6EE7B7"},
+        ].map(s=>(
+          <div key={s.l} style={{display:"flex",alignItems:"baseline",gap:3}}>
+            <span style={{fontSize:14,fontWeight:800,color:s.c,lineHeight:1}}>{s.v}</span>
+            <span style={{fontSize:9,color:"rgba(255,255,255,0.4)",fontWeight:600,
+              textTransform:"uppercase",letterSpacing:"0.04em"}}>{s.l}</span>
           </div>
         ))}
+
         <div style={{flex:1}}/>
-        {/* Sync indicator */}
+
+        {/* Sync */}
         {syncState!=="idle" && (
-          <div style={{display:"flex",alignItems:"center",gap:5,fontSize:10,fontWeight:600,
-            color: syncState==="error"?"#FCA5A5" : syncState==="saved"?"#6EE7B7" : "rgba(255,255,255,0.5)"}}>
-            {syncState==="saving" && <span style={{animation:"spin 1s linear infinite",display:"inline-block"}}>⟳</span>}
-            {syncState==="saved"  && "✓ Guardado"}
-            {syncState==="error"  && "✗ Error al guardar"}
+          <div style={{display:"flex",alignItems:"center",gap:4,fontSize:10,fontWeight:600,
+            color:syncState==="error"?"#FCA5A5":syncState==="saved"?"#6EE7B7":"rgba(255,255,255,0.4)"}}>
+            {syncState==="saving"&&<span style={{animation:"spin 1s linear infinite",display:"inline-block"}}>⟳</span>}
+            {syncState==="saved"&&"✓ Guardado"}
+            {syncState==="error"&&"✗ Error"}
           </div>
         )}
-        <button onClick={()=>setView(v=>v==="dashboard"?"partners":"dashboard")} style={{
-          background:view==="dashboard"?"white":"rgba(255,255,255,0.12)",
-          color:view==="dashboard"?"#1E3A8A":"rgba(255,255,255,0.75)",
-          border:view==="dashboard"?"none":"1px solid rgba(255,255,255,0.25)",
-          borderRadius:5,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-          📊 Dashboard
-        </button>
-        {view==="partners" && <button onClick={()=>setShowMap(m=>!m)} style={{
-          background:showMap?"white":"rgba(255,255,255,0.12)",
-          color:showMap?"#1E3A8A":"rgba(255,255,255,0.75)",
-          border:showMap?"none":"1px solid rgba(255,255,255,0.25)",
-          borderRadius:5,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-          🗺 {showMap?"Ocultar mapa":"Ver mapa"}
-        </button>}
+
+        {/* Nav buttons */}
+        {[
+          {label:"📊 Dashboard", active:view==="dashboard", onClick:()=>setView(v=>v==="dashboard"?"partners":"dashboard")},
+          ...(view==="partners"?[{label:showMap?"Ocultar mapa":"🗺 Mapa", active:showMap, onClick:()=>setShowMap(m=>!m)}]:[]),
+        ].map(btn=>(
+          <button key={btn.label} onClick={btn.onClick} style={{
+            background:btn.active?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.08)",
+            color:btn.active?DS.primary:"rgba(255,255,255,0.7)",
+            border:`1px solid ${btn.active?"transparent":"rgba(255,255,255,0.15)"}`,
+            borderRadius:7,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer",
+            transition:"all 0.15s",letterSpacing:"-0.01em"}}>
+            {btn.label}
+          </button>
+        ))}
+
         {/* Bell */}
         <button onClick={()=>setShowRemindersPanel(r=>!r)} style={{
-          position:"relative",background: pendingReminders.length?"#FEF9C3":"rgba(255,255,255,0.12)",
-          border: pendingReminders.length?"1px solid #FDE047":"1px solid rgba(255,255,255,0.25)",
-          borderRadius:5,padding:"5px 10px",fontSize:14,cursor:"pointer",
-          display:"flex",alignItems:"center",gap:4}}>
+          position:"relative",
+          background:pendingReminders.length?"rgba(254,249,195,0.15)":"rgba(255,255,255,0.08)",
+          border:`1px solid ${pendingReminders.length?"rgba(253,224,71,0.4)":"rgba(255,255,255,0.15)"}`,
+          borderRadius:7,width:34,height:32,cursor:"pointer",fontSize:13,
+          display:"flex",alignItems:"center",justifyContent:"center"}}>
           🔔
           {pendingReminders.length>0 && (
-            <span style={{background:"#EF4444",color:"white",borderRadius:"50%",
-              fontSize:9,fontWeight:800,width:15,height:15,display:"flex",
-              alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <span style={{position:"absolute",top:-4,right:-4,background:"#EF4444",color:"white",
+              borderRadius:"50%",fontSize:8,fontWeight:800,width:14,height:14,
+              display:"flex",alignItems:"center",justifyContent:"center",
+              border:"1px solid "+DS.primary}}>
               {pendingReminders.length}
             </span>
           )}
         </button>
-        <button onClick={()=>setModal("active")} style={{background:"white",color:"#1E3A8A",
-          border:"none",borderRadius:5,padding:"5px 12px",fontSize:11,fontWeight:800,cursor:"pointer"}}>
+
+        {/* Action buttons */}
+        <button onClick={()=>setModal("active")} style={{
+          background:"rgba(255,255,255,0.95)",color:DS.primary,border:"none",
+          borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:800,cursor:"pointer"}}>
           + Distribuidor
         </button>
-        <button onClick={()=>setModal("prospect")} style={{background:"rgba(255,255,255,0.12)",
-          color:"white",border:"1px solid rgba(255,255,255,0.25)",borderRadius:5,
-          padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+        <button onClick={()=>setModal("prospect")} style={{
+          background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.8)",
+          border:"1px solid rgba(255,255,255,0.15)",
+          borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
           + Prospecto
         </button>
-        <label style={{background:"rgba(255,255,255,0.12)",color:"white",
-          border:"1px solid rgba(255,255,255,0.25)",borderRadius:5,
-          padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer",
+        <label style={{
+          background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.8)",
+          border:"1px solid rgba(255,255,255,0.15)",
+          borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer",
           display:"flex",alignItems:"center",gap:4}}>
-          📥 Importar CSV
+          📥 CSV
           <input type="file" accept=".csv" style={{display:"none"}}
             onChange={e=>{
               const file=e.target.files[0]; if(!file) return;
@@ -3154,19 +3292,23 @@ function AppInner({ session, onLogout }) {
               e.target.value="";
             }}/>
         </label>
-        <div style={{width:1,height:20,background:"rgba(255,255,255,0.15)"}}/>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{width:26,height:26,background:"rgba(255,255,255,0.15)",borderRadius:"50%",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:11,fontWeight:800,color:"white"}}>
+
+        <div style={{width:1,height:22,background:"rgba(255,255,255,0.12)"}}/>
+
+        {/* User */}
+        <div style={{display:"flex",alignItems:"center",gap:7}}>
+          <div style={{width:28,height:28,background:`linear-gradient(135deg,rgba(255,255,255,0.25),rgba(255,255,255,0.1))`,
+            borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:11,fontWeight:800,color:"white",border:"1px solid rgba(255,255,255,0.2)"}}>
             {(session.display_name||session.username||"?")[0].toUpperCase()}
           </div>
-          <span style={{fontSize:11,fontWeight:600,color:"rgba(255,255,255,0.7)"}}>
+          <span style={{fontSize:11,fontWeight:600,color:"rgba(255,255,255,0.6)"}}>
             {session.display_name||session.username}
           </span>
-          <button onClick={onLogout} style={{background:"rgba(255,255,255,0.08)",
-            color:"rgba(255,255,255,0.5)",border:"1px solid rgba(255,255,255,0.12)",
-            borderRadius:5,padding:"3px 8px",fontSize:10,fontWeight:600,cursor:"pointer"}}>
+          <button onClick={onLogout} style={{
+            background:"rgba(255,255,255,0.07)",color:"rgba(255,255,255,0.4)",
+            border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,
+            padding:"3px 8px",fontSize:10,fontWeight:600,cursor:"pointer"}}>
             Salir
           </button>
         </div>
@@ -3251,38 +3393,41 @@ function AppInner({ session, onLogout }) {
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
         {/* Sidebar + Detail panel column */}
         <div style={{
-          width: showMap ? (selected ? 460 : 260) : "100%",
+          width: showMap ? (selected ? 460 : 280) : "100%",
           display:"flex",flexDirection:"column",flexShrink:0,
-          borderRight: showMap ? "1px solid #E2E8F0" : "none",
-          transition:"width 0.25s ease",overflow:"hidden"}}>
+          borderRight: showMap ? `1px solid ${DS.border}` : "none",
+          transition:"width 0.25s ease",overflow:"hidden",
+          background:DS.white,boxShadow:showMap?"2px 0 8px rgba(15,45,107,0.04)":"none"}}>
 
           {/* List sidebar — hidden when detail panel open and map is visible */}
           {(!selected || !showMap) && (
           <div style={{display:"flex",flexDirection:"column",height:"100%",background:"white"}}>
-          <div style={{padding:"10px 12px",borderBottom:"1px solid #F1F5F9",flexShrink:0}}>
+          <div style={{padding:"12px 14px",borderBottom:`1px solid ${DS.border}`,
+            background:DS.white,flexShrink:0}}>
             <input value={search} onChange={e=>setSearch(e.target.value)}
-              placeholder="Buscar…" style={{width:"100%",border:"1px solid #E2E8F0",
-                borderRadius:6,padding:"6px 10px",fontSize:12,boxSizing:"border-box",
-                fontFamily:"system-ui,sans-serif"}}/>
+              placeholder="Buscar…"
+              className="ds-input"
+              style={{width:"100%",border:`1px solid ${DS.border}`,
+                borderRadius:8,padding:"7px 11px",fontSize:12,
+                color:DS.ink,outline:"none",
+                transition:"border-color 0.15s"}}/>
             <div style={{display:"flex",gap:6,marginTop:8}}>
-              <select value={filter} onChange={e=>setFilter(e.target.value)} style={{
-                flex:1,border:"1px solid #E2E8F0",borderRadius:6,padding:"5px 6px",
-                fontSize:11,fontFamily:"system-ui,sans-serif",color:"#374151",
-                background:"white",cursor:"pointer",outline:"none"}}>
-                <option value="all">Todos</option>
-                <option value="active">Activos</option>
-                <option value="premium">Premium</option>
-                <option value="specialist">Specialist</option>
-                <option value="prospect">Prospectos</option>
-              </select>
-              <select value={sort} onChange={e=>setSort(e.target.value)} style={{
-                flex:1,border:"1px solid #E2E8F0",borderRadius:6,padding:"5px 6px",
-                fontSize:11,fontFamily:"system-ui,sans-serif",color:"#374151",
-                background:"white",cursor:"pointer",outline:"none"}}>
-                <option value="arr">Mayor ARR</option>
-                <option value="az">A → Z</option>
-                <option value="za">Z → A</option>
-              </select>
+              {[
+                {state:filter, set:setFilter, opts:[
+                  {v:"all",l:"Todos"},{v:"active",l:"Activos"},{v:"premium",l:"Premium"},
+                  {v:"specialist",l:"Specialist"},{v:"prospect",l:"Prospectos"}
+                ]},
+                {state:sort, set:setSort, opts:[
+                  {v:"arr",l:"Mayor ARR"},{v:"az",l:"A → Z"},{v:"za",l:"Z → A"}
+                ]},
+              ].map((sel,i)=>(
+                <select key={i} value={sel.state} onChange={e=>sel.set(e.target.value)}
+                  style={{flex:1,border:`1px solid ${DS.border}`,borderRadius:7,
+                    padding:"5px 7px",fontSize:11,color:DS.body,background:DS.white,
+                    cursor:"pointer",outline:"none",fontFamily:"inherit"}}>
+                  {sel.opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+                </select>
+              ))}
             </div>
           </div>
           <div style={{flex:1,overflowY:"auto"}}>
@@ -3379,87 +3524,79 @@ function AppInner({ session, onLogout }) {
 
 // ── Dashboard View ─────────────────────────────────────────────────────────
 function DashboardView({ data }) {
-  const totalArr = data.partners.reduce((s,p)=>s+(p.arr||0),0);
-  const totalAccounts = data.partners.reduce((s,p)=>s+(p.accounts||0),0);
+  const totalArr     = data.partners.reduce((s,p)=>s+(p.arr||0),0);
+  const totalAccounts= data.partners.reduce((s,p)=>s+(p.accounts||0),0);
   const totalBooking = data.partners.reduce((s,p)=>s+(p.booking2026||0),0);
-  const premCount = data.partners.filter(p=>p.level==="premium").length;
-  const spCount = data.partners.filter(p=>p.level==="specialist").length;
-  const prCount = data.prospects.length;
-  const pendingReminders = [...data.partners,...data.prospects].flatMap(e=>
-    (e.updates||[]).filter(u=>u.reminder&&!u.reminder.done)
-  ).length;
+  const premCount    = data.partners.filter(p=>p.level==="premium").length;
+  const spCount      = data.partners.filter(p=>p.level==="specialist").length;
+  const prCount      = data.prospects.length;
+  const pendingReminders = [...data.partners,...data.prospects]
+    .flatMap(e=>(e.updates||[]).filter(u=>u.reminder&&!u.reminder.done)).length;
 
   const kpis = [
-    { label:"ARR Total", value:`€${(totalArr/1000).toFixed(0)}k`, sub:"Ingreso neto Revo", color:"#1E3A8A" },
-    { label:"Cuentas activas", value:totalAccounts, sub:"Clientes en canal", color:"#0891B2" },
-    { label:"Booking 2026", value:`€${(totalBooking/1000).toFixed(0)}k`, sub:"Contratado este año", color:"#059669" },
-    { label:"Partners", value:data.partners.length, sub:`${premCount} Premium · ${spCount} Specialist`, color:"#7C3AED" },
-    { label:"Prospectos", value:prCount, sub:"En pipeline", color:"#D97706" },
-    { label:"Recordatorios", value:pendingReminders, sub:"Pendientes", color:"#DC2626" },
+    { label:"ARR Total",      value:`€${(totalArr/1000).toFixed(0)}k`,    sub:"Ingreso neto Revo",              color:DS.primaryMid, bg:DS.primaryLight },
+    { label:"Cuentas activas",value:totalAccounts,                         sub:"Clientes en canal",              color:DS.specialist, bg:"#ECFEFF" },
+    { label:"Booking 2026",   value:`€${(totalBooking/1000).toFixed(0)}k`, sub:"Contratado este año",            color:DS.success,    bg:"#F0FDF4" },
+    { label:"Partners",       value:data.partners.length,                  sub:`${premCount} Premium · ${spCount} Specialist`, color:"#7C3AED", bg:"#F5F3FF" },
+    { label:"Prospectos",     value:prCount,                               sub:"En pipeline",                   color:DS.warning,    bg:"#FFFBEB" },
+    { label:"Recordatorios",  value:pendingReminders,                      sub:"Pendientes",                    color:DS.danger,     bg:"#FEF2F2" },
   ];
 
+  const PlaceholderCard = ({title, desc, height=200}) => (
+    <div style={{background:DS.white,borderRadius:12,padding:"18px 20px",
+      boxShadow:DS.shadowSm,border:`1px solid ${DS.border}`,minHeight:height,
+      display:"flex",flexDirection:"column"}}>
+      <div style={{fontSize:13,fontWeight:700,color:DS.ink,marginBottom:3}}>{title}</div>
+      <div style={{fontSize:11,color:DS.placeholder,marginBottom:14}}>{desc}</div>
+      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",
+        background:DS.surface,borderRadius:8,border:`1.5px dashed ${DS.borderMid}`}}>
+        <div style={{textAlign:"center",color:DS.borderMid}}>
+          <div style={{fontSize:24,marginBottom:6}}>📊</div>
+          <div style={{fontSize:11,fontWeight:600,letterSpacing:"0.02em"}}>Próximamente</div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div style={{flex:1,overflowY:"auto",padding:24,background:"#F0F7FF",fontFamily:"system-ui,sans-serif"}}>
-      <div style={{maxWidth:1100,margin:"0 auto"}}>
+    <div style={{flex:1,overflowY:"auto",padding:"24px 28px",background:DS.bg}}>
+      <div style={{maxWidth:1100,margin:"0 auto",animation:"fadeIn 0.2s ease"}}>
+
         <div style={{marginBottom:24}}>
-          <div style={{fontSize:20,fontWeight:800,color:"#1E293B"}}>Dashboard</div>
-          <div style={{fontSize:13,color:"#64748B",marginTop:2}}>Visión general del canal de distribución</div>
+          <div style={{fontSize:18,fontWeight:800,color:DS.ink,letterSpacing:"-0.02em"}}>
+            Dashboard
+          </div>
+          <div style={{fontSize:12,color:DS.muted,marginTop:3}}>
+            Visión general del canal de distribución
+          </div>
         </div>
 
         {/* KPI cards */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:14,marginBottom:28}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",
+          gap:12,marginBottom:24}}>
           {kpis.map(k=>(
-            <div key={k.label} style={{background:"white",borderRadius:12,padding:"18px 20px",
-              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",border:"1px solid #E2E8F0"}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",
-                letterSpacing:"0.06em",marginBottom:8}}>{k.label}</div>
-              <div style={{fontSize:28,fontWeight:800,color:k.color,marginBottom:4}}>{k.value}</div>
-              <div style={{fontSize:11,color:"#94A3B8"}}>{k.sub}</div>
+            <div key={k.label} style={{background:DS.white,borderRadius:12,padding:"16px 18px",
+              boxShadow:DS.shadowSm,border:`1px solid ${DS.border}`,
+              borderTop:`3px solid ${k.color}`}}>
+              <div style={{fontSize:10,fontWeight:700,color:DS.muted,textTransform:"uppercase",
+                letterSpacing:"0.07em",marginBottom:10}}>{k.label}</div>
+              <div style={{fontSize:26,fontWeight:800,color:k.color,
+                letterSpacing:"-0.02em",lineHeight:1,marginBottom:5}}>{k.value}</div>
+              <div style={{fontSize:11,color:DS.placeholder}}>{k.sub}</div>
             </div>
           ))}
         </div>
 
-        {/* Placeholder gráficos */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
-          {[
-            {title:"ARR por partner", desc:"Ranking de distribuidores por ingreso neto"},
-            {title:"Evolución NB 2025-2026", desc:"Nuevas altas por trimestre"},
-          ].map(g=>(
-            <div key={g.title} style={{background:"white",borderRadius:12,padding:"20px",
-              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",border:"1px solid #E2E8F0",minHeight:220,
-              display:"flex",flexDirection:"column"}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:4}}>{g.title}</div>
-              <div style={{fontSize:11,color:"#94A3B8",marginBottom:16}}>{g.desc}</div>
-              <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",
-                background:"#F8FAFC",borderRadius:8,border:"1px dashed #CBD5E1"}}>
-                <div style={{textAlign:"center",color:"#CBD5E1"}}>
-                  <div style={{fontSize:28,marginBottom:6}}>📊</div>
-                  <div style={{fontSize:11,fontWeight:600}}>Próximamente</div>
-                </div>
-              </div>
-            </div>
-          ))}
+        {/* Charts row 1 */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+          <PlaceholderCard title="ARR por partner" desc="Ranking de distribuidores por ingreso neto" height={220}/>
+          <PlaceholderCard title="Evolución NB 2025–2026" desc="Nuevas altas por trimestre" height={220}/>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
-          {[
-            {title:"Distribución por nivel", desc:"Premium vs Specialist"},
-            {title:"Cobertura territorial", desc:"Provincias con presencia"},
-            {title:"Pipeline de prospectos", desc:"Estado del proceso de captación"},
-          ].map(g=>(
-            <div key={g.title} style={{background:"white",borderRadius:12,padding:"20px",
-              boxShadow:"0 1px 4px rgba(0,0,0,0.06)",border:"1px solid #E2E8F0",minHeight:180,
-              display:"flex",flexDirection:"column"}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:4}}>{g.title}</div>
-              <div style={{fontSize:11,color:"#94A3B8",marginBottom:16}}>{g.desc}</div>
-              <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",
-                background:"#F8FAFC",borderRadius:8,border:"1px dashed #CBD5E1"}}>
-                <div style={{textAlign:"center",color:"#CBD5E1"}}>
-                  <div style={{fontSize:24,marginBottom:6}}>📊</div>
-                  <div style={{fontSize:11,fontWeight:600}}>Próximamente</div>
-                </div>
-              </div>
-            </div>
-          ))}
+        {/* Charts row 2 */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+          <PlaceholderCard title="Distribución por nivel" desc="Premium vs Specialist" height={180}/>
+          <PlaceholderCard title="Cobertura territorial" desc="Provincias con presencia" height={180}/>
+          <PlaceholderCard title="Pipeline de prospectos" desc="Estado del proceso de captación" height={180}/>
         </div>
       </div>
     </div>
