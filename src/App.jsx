@@ -3056,6 +3056,15 @@ function AppInner({ session, onLogout }) {
     setModal(null);
   },[]);
 
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef(null);
+  useEffect(()=>{
+    if (!addMenuOpen) return;
+    const fn = e => { if (addMenuRef.current && !addMenuRef.current.contains(e.target)) setAddMenuOpen(false); };
+    document.addEventListener("mousedown", fn);
+    return ()=>document.removeEventListener("mousedown", fn);
+  },[addMenuOpen]);
+
   if(!data) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",
       height:"100vh",fontFamily:"system-ui,sans-serif",color:"#64748B"}}>Cargando…</div>
@@ -3181,15 +3190,6 @@ function AppInner({ session, onLogout }) {
   );
 
   // ── DESKTOP LAYOUT ─────────────────────────────────────────────────────
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
-  const addMenuRef = useRef(null);
-  useEffect(()=>{
-    if (!addMenuOpen) return;
-    const fn = e => { if (addMenuRef.current && !addMenuRef.current.contains(e.target)) setAddMenuOpen(false); };
-    document.addEventListener("mousedown", fn);
-    return ()=>document.removeEventListener("mousedown", fn);
-  },[addMenuOpen]);
-
   return (
     <div style={{height:"100vh",display:"flex",flexDirection:"column",
       fontFamily:"-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif",
