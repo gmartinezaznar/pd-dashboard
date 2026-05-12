@@ -3181,134 +3181,162 @@ function AppInner({ session, onLogout }) {
   );
 
   // ── DESKTOP LAYOUT ─────────────────────────────────────────────────────
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef(null);
+  useEffect(()=>{
+    if (!addMenuOpen) return;
+    const fn = e => { if (addMenuRef.current && !addMenuRef.current.contains(e.target)) setAddMenuOpen(false); };
+    document.addEventListener("mousedown", fn);
+    return ()=>document.removeEventListener("mousedown", fn);
+  },[addMenuOpen]);
+
   return (
     <div style={{height:"100vh",display:"flex",flexDirection:"column",
       fontFamily:"-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif",
       background:DS.bg}}>
 
-      {/* Topbar */}
+      {/* ── Topbar ── */}
       <div style={{background:DS.primary,height:52,display:"flex",alignItems:"center",
-        padding:"0 20px",gap:12,flexShrink:0,
-        boxShadow:"0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.2)"}}>
+        padding:"0 20px",flexShrink:0,gap:0,
+        boxShadow:"0 1px 0 rgba(255,255,255,0.07),0 2px 12px rgba(0,0,0,0.25)"}}>
 
         {/* Brand */}
-        <div style={{display:"flex",alignItems:"center",gap:9,marginRight:4}}>
+        <div style={{display:"flex",alignItems:"center",gap:9,paddingRight:16,
+          borderRight:"1px solid rgba(255,255,255,0.1)"}}>
           <div style={{width:28,height:28,background:"rgba(255,255,255,0.12)",borderRadius:7,
             display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,
             border:"1px solid rgba(255,255,255,0.15)"}}>🗺</div>
           <div>
-            <div style={{color:"white",fontWeight:800,fontSize:13,lineHeight:1.2,
-              letterSpacing:"-0.01em"}}>PD Dashboard</div>
-            <div style={{color:"rgba(255,255,255,0.35)",fontSize:9,fontWeight:600,
-              letterSpacing:"0.04em",textTransform:"uppercase"}}>Cegid Revo</div>
+            <div style={{color:"white",fontWeight:800,fontSize:13,lineHeight:1.2,letterSpacing:"-0.01em"}}>
+              PD Dashboard
+            </div>
+            <div style={{color:"rgba(255,255,255,0.3)",fontSize:9,fontWeight:600,
+              letterSpacing:"0.05em",textTransform:"uppercase"}}>Cegid Revo</div>
           </div>
         </div>
 
-        <div style={{width:1,height:22,background:"rgba(255,255,255,0.12)",margin:"0 4px"}}/>
-
-        {/* KPI pills */}
-        {[
-          {v:premCount,  l:"Premium",    c:"#93C5FD"},
-          {v:spCount,    l:"Specialist", c:"#67E8F9"},
-          {v:prCount,    l:"Prospectos", c:"#FDE68A"},
-          {v:"€"+Math.round(totalArr/1000)+"k", l:"ARR", c:"#6EE7B7"},
-        ].map(s=>(
-          <div key={s.l} style={{display:"flex",alignItems:"baseline",gap:3}}>
-            <span style={{fontSize:14,fontWeight:800,color:s.c,lineHeight:1}}>{s.v}</span>
-            <span style={{fontSize:9,color:"rgba(255,255,255,0.4)",fontWeight:600,
-              textTransform:"uppercase",letterSpacing:"0.04em"}}>{s.l}</span>
-          </div>
-        ))}
+        {/* Navigation */}
+        <div style={{display:"flex",alignItems:"center",gap:2,padding:"0 12px",
+          borderRight:"1px solid rgba(255,255,255,0.1)"}}>
+          {[
+            {label:"📊 Dashboard", active:view==="dashboard", onClick:()=>setView(v=>v==="dashboard"?"partners":"dashboard")},
+            {label:"🗺 Mapa",      active:view==="partners"&&showMap, onClick:()=>{ setView("partners"); setShowMap(m=>!m); }, hide:view==="dashboard"},
+          ].filter(b=>!b.hide).map(btn=>(
+            <button key={btn.label} onClick={btn.onClick} style={{
+              background:btn.active?"rgba(255,255,255,0.14)":"transparent",
+              color:btn.active?"white":"rgba(255,255,255,0.55)",
+              border:"none",borderRadius:6,padding:"5px 11px",
+              fontSize:11,fontWeight:btn.active?700:500,cursor:"pointer",
+              transition:"all 0.15s",letterSpacing:"0.01em",
+              display:"flex",alignItems:"center",gap:5}}>
+              {btn.label}
+            </button>
+          ))}
+        </div>
 
         <div style={{flex:1}}/>
 
-        {/* Sync */}
+        {/* Sync indicator */}
         {syncState!=="idle" && (
-          <div style={{display:"flex",alignItems:"center",gap:4,fontSize:10,fontWeight:600,
-            color:syncState==="error"?"#FCA5A5":syncState==="saved"?"#6EE7B7":"rgba(255,255,255,0.4)"}}>
-            {syncState==="saving"&&<span style={{animation:"spin 1s linear infinite",display:"inline-block"}}>⟳</span>}
+          <div style={{display:"flex",alignItems:"center",gap:4,fontSize:10,fontWeight:600,marginRight:12,
+            color:syncState==="error"?"#FCA5A5":syncState==="saved"?"#6EE7B7":"rgba(255,255,255,0.35)"}}>
+            {syncState==="saving"&&<span style={{animation:"spin 1s linear infinite",display:"inline-block",fontSize:12}}>⟳</span>}
             {syncState==="saved"&&"✓ Guardado"}
             {syncState==="error"&&"✗ Error"}
           </div>
         )}
 
-        {/* Nav buttons */}
-        {[
-          {label:"📊 Dashboard", active:view==="dashboard", onClick:()=>setView(v=>v==="dashboard"?"partners":"dashboard")},
-          ...(view==="partners"?[{label:showMap?"Ocultar mapa":"🗺 Mapa", active:showMap, onClick:()=>setShowMap(m=>!m)}]:[]),
-        ].map(btn=>(
-          <button key={btn.label} onClick={btn.onClick} style={{
-            background:btn.active?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.08)",
-            color:btn.active?DS.primary:"rgba(255,255,255,0.7)",
-            border:`1px solid ${btn.active?"transparent":"rgba(255,255,255,0.15)"}`,
-            borderRadius:7,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer",
-            transition:"all 0.15s",letterSpacing:"-0.01em"}}>
-            {btn.label}
+        {/* Actions group */}
+        <div style={{display:"flex",alignItems:"center",gap:6,paddingRight:12,
+          borderRight:"1px solid rgba(255,255,255,0.1)"}}>
+
+          {/* Bell */}
+          <button onClick={()=>setShowRemindersPanel(r=>!r)} style={{
+            position:"relative",
+            background:showRemindersPanel?"rgba(255,255,255,0.14)":"transparent",
+            border:"none",borderRadius:6,width:32,height:32,cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>
+            🔔
+            {pendingReminders.length>0 && (
+              <span style={{position:"absolute",top:3,right:3,background:DS.danger,color:"white",
+                borderRadius:"50%",fontSize:8,fontWeight:800,width:12,height:12,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {pendingReminders.length}
+              </span>
+            )}
           </button>
-        ))}
 
-        {/* Bell */}
-        <button onClick={()=>setShowRemindersPanel(r=>!r)} style={{
-          position:"relative",
-          background:pendingReminders.length?"rgba(254,249,195,0.15)":"rgba(255,255,255,0.08)",
-          border:`1px solid ${pendingReminders.length?"rgba(253,224,71,0.4)":"rgba(255,255,255,0.15)"}`,
-          borderRadius:7,width:34,height:32,cursor:"pointer",fontSize:13,
-          display:"flex",alignItems:"center",justifyContent:"center"}}>
-          🔔
-          {pendingReminders.length>0 && (
-            <span style={{position:"absolute",top:-4,right:-4,background:"#EF4444",color:"white",
-              borderRadius:"50%",fontSize:8,fontWeight:800,width:14,height:14,
-              display:"flex",alignItems:"center",justifyContent:"center",
-              border:"1px solid "+DS.primary}}>
-              {pendingReminders.length}
-            </span>
-          )}
-        </button>
+          {/* Add dropdown */}
+          <div ref={addMenuRef} style={{position:"relative"}}>
+            <button onClick={()=>setAddMenuOpen(o=>!o)} style={{
+              background:"rgba(255,255,255,0.95)",color:DS.primary,border:"none",
+              borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer",
+              display:"flex",alignItems:"center",gap:5,transition:"background 0.15s"}}>
+              + Añadir
+              <span style={{fontSize:8,opacity:0.6}}>{addMenuOpen?"▲":"▼"}</span>
+            </button>
+            {addMenuOpen && (
+              <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,
+                background:DS.white,borderRadius:10,
+                boxShadow:DS.shadowLg,border:`1px solid ${DS.border}`,
+                minWidth:160,zIndex:200,overflow:"hidden",animation:"fadeIn 0.12s ease"}}>
+                {[
+                  {label:"🏢 Distribuidor", onClick:()=>{setModal("active");setAddMenuOpen(false);}},
+                  {label:"👤 Prospecto",    onClick:()=>{setModal("prospect");setAddMenuOpen(false);}},
+                ].map(item=>(
+                  <button key={item.label} onClick={item.onClick} style={{
+                    width:"100%",background:"none",border:"none",padding:"11px 16px",
+                    fontSize:12,fontWeight:600,color:DS.ink,cursor:"pointer",textAlign:"left",
+                    display:"flex",alignItems:"center",gap:8,transition:"background 0.1s"}}
+                    onMouseEnter={e=>e.currentTarget.style.background=DS.surface}
+                    onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
-        {/* Action buttons */}
-        <button onClick={()=>setModal("active")} style={{
-          background:"rgba(255,255,255,0.95)",color:DS.primary,border:"none",
-          borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:800,cursor:"pointer"}}>
-          + Distribuidor
-        </button>
-        <button onClick={()=>setModal("prospect")} style={{
-          background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.8)",
-          border:"1px solid rgba(255,255,255,0.15)",
-          borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
-          + Prospecto
-        </button>
-        <label style={{
-          background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.8)",
-          border:"1px solid rgba(255,255,255,0.15)",
-          borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer",
-          display:"flex",alignItems:"center",gap:4}}>
-          📥 CSV
-          <input type="file" accept=".csv" style={{display:"none"}}
-            onChange={e=>{
-              const file=e.target.files[0]; if(!file) return;
-              const reader=new FileReader();
-              reader.onload=ev=>setModal({type:"csv",content:ev.target.result});
-              reader.readAsText(file,"UTF-8");
-              e.target.value="";
-            }}/>
-        </label>
-
-        <div style={{width:1,height:22,background:"rgba(255,255,255,0.12)"}}/>
+          {/* CSV upload */}
+          <label style={{
+            background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.75)",
+            border:"1px solid rgba(255,255,255,0.15)",
+            borderRadius:7,padding:"5px 11px",fontSize:11,fontWeight:600,cursor:"pointer",
+            display:"flex",alignItems:"center",gap:5,transition:"background 0.15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.12)"}
+            onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"}>
+            📥 Subir .csv
+            <input type="file" accept=".csv" style={{display:"none"}}
+              onChange={e=>{
+                const file=e.target.files[0]; if(!file) return;
+                const reader=new FileReader();
+                reader.onload=ev=>setModal({type:"csv",content:ev.target.result});
+                reader.readAsText(file,"UTF-8");
+                e.target.value="";
+              }}/>
+          </label>
+        </div>
 
         {/* User */}
-        <div style={{display:"flex",alignItems:"center",gap:7}}>
-          <div style={{width:28,height:28,background:`linear-gradient(135deg,rgba(255,255,255,0.25),rgba(255,255,255,0.1))`,
+        <div style={{display:"flex",alignItems:"center",gap:8,paddingLeft:12}}>
+          <div style={{width:28,height:28,
+            background:`linear-gradient(135deg,rgba(255,255,255,0.3),rgba(255,255,255,0.1))`,
             borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:11,fontWeight:800,color:"white",border:"1px solid rgba(255,255,255,0.2)"}}>
+            fontSize:11,fontWeight:800,color:"white",border:"1px solid rgba(255,255,255,0.2)",
+            flexShrink:0}}>
             {(session.display_name||session.username||"?")[0].toUpperCase()}
           </div>
-          <span style={{fontSize:11,fontWeight:600,color:"rgba(255,255,255,0.6)"}}>
+          <span style={{fontSize:11,fontWeight:500,color:"rgba(255,255,255,0.55)",
+            maxWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
             {session.display_name||session.username}
           </span>
           <button onClick={onLogout} style={{
-            background:"rgba(255,255,255,0.07)",color:"rgba(255,255,255,0.4)",
+            background:"transparent",color:"rgba(255,255,255,0.35)",
             border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,
-            padding:"3px 8px",fontSize:10,fontWeight:600,cursor:"pointer"}}>
+            padding:"3px 8px",fontSize:10,cursor:"pointer",
+            transition:"all 0.15s"}}
+            onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,0.08)";e.currentTarget.style.color="rgba(255,255,255,0.6)"}}
+            onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="rgba(255,255,255,0.35)"}}>
             Salir
           </button>
         </div>
