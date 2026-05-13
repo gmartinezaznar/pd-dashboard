@@ -591,7 +591,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
     <div ref={containerRef} style={{position:"relative",width:"100%",height:"100%"}}>
       <svg ref={svgRef} viewBox={"0 0 "+dims.w+" "+dims.h}
         style={{width:"100%",height:"100%",display:"block"}}
-        onClick={()=>setTooltip(null)}>
+        onClick={()=>{setTooltip(null);}}>
         <defs>
           {DENSITY.slice(1).map((color,i)=>(
             <pattern key={i} id={"hatch-"+i+1} patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
@@ -829,27 +829,45 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
       {/* Locality search */}
       <LocalitySearch normName={normName} onHighlight={setGeoHighlight}/>
 
-      {/* Density legend */}
-      <div style={{position:"absolute",top:10,left:10,background:"rgba(255,255,255,0.95)",
-        border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 11px",
-        fontFamily:"system-ui,sans-serif",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
-        <div style={{fontSize:9,fontWeight:800,color:"#475569",textTransform:"uppercase",
-          letterSpacing:"0.06em",marginBottom:6}}>Partners / provincia</div>
-        {[{n:0,l:"Sin asignar"},{n:1,l:"1 partner"},{n:2,l:"2 partners"},
-          {n:3,l:"3 partners"},{n:4,l:"4 o más"}].map(item=>(
-          <div key={item.n} style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-            <div style={{width:14,height:9,borderRadius:2,flexShrink:0,
-              background:DENSITY[Math.min(item.n,DENSITY.length-1)],
-              border:"1px solid rgba(0,0,0,0.07)"}}/>
-            <span style={{fontSize:10,color:"#475569",fontWeight:500}}>{item.l}</span>
+      {/* Density legend — minimized, expands on hover */}
+      <div style={{position:"absolute",top:10,left:10,fontFamily:"system-ui,sans-serif",zIndex:10}}
+        className="map-legend">
+        <style>{`.map-legend .legend-full{display:none}.map-legend:hover .legend-full{display:block}.map-legend:hover .legend-dot{display:none}`}</style>
+        {/* Collapsed — just a small icon */}
+        <div className="legend-dot" style={{
+          width:28,height:28,background:"rgba(255,255,255,0.92)",
+          backdropFilter:"blur(8px)",borderRadius:8,
+          border:"1px solid rgba(0,0,0,0.06)",
+          boxShadow:DS.shadowSm,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          cursor:"default",fontSize:12}}>
+          ◈
+        </div>
+        {/* Expanded on hover */}
+        <div className="legend-full" style={{
+          background:"rgba(255,255,255,0.95)",backdropFilter:"blur(12px)",
+          WebkitBackdropFilter:"blur(12px)",
+          border:"1px solid rgba(0,0,0,0.06)",borderRadius:10,
+          padding:"10px 12px",boxShadow:DS.shadowMd,
+          animation:"fadeIn 0.15s ease"}}>
+          <div style={{fontSize:9,fontWeight:700,color:DS.muted,textTransform:"uppercase",
+            letterSpacing:"0.08em",marginBottom:7}}>Partners / provincia</div>
+          {[{n:0,l:"Sin asignar"},{n:1,l:"1 partner"},{n:2,l:"2 partners"},
+            {n:3,l:"3 partners"},{n:4,l:"4 o más"}].map(item=>(
+            <div key={item.n} style={{display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
+              <div style={{width:12,height:8,borderRadius:2,flexShrink:0,
+                background:DENSITY[Math.min(item.n,DENSITY.length-1)],
+                border:"1px solid rgba(0,0,0,0.06)"}}/>
+              <span style={{fontSize:10,color:DS.muted}}>{item.l}</span>
+            </div>
+          ))}
+          <div style={{display:"flex",alignItems:"center",gap:7,marginTop:5,
+            paddingTop:5,borderTop:"1px solid "+DS.borderLight}}>
+            <div style={{width:12,height:8,borderRadius:2,flexShrink:0,overflow:"hidden",
+              background:"repeating-linear-gradient(45deg,#E2E8F0,#E2E8F0 2px,#BFDBFE 2px,#BFDBFE 4px)",
+              border:"1px solid rgba(0,0,0,0.06)"}}/>
+            <span style={{fontSize:10,color:DS.muted}}>Solo secundaria</span>
           </div>
-        ))}
-        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4,paddingTop:4,
-          borderTop:"1px solid #E2E8F0"}}>
-          <div style={{width:14,height:9,borderRadius:2,flexShrink:0,overflow:"hidden",
-            background:"repeating-linear-gradient(45deg,#E2E8F0,#E2E8F0 2px,#BFDBFE 2px,#BFDBFE 4px)",
-            border:"1px solid rgba(0,0,0,0.07)"}}/>
-          <span style={{fontSize:10,color:"#475569",fontWeight:500}}>Solo secundaria</span>
         </div>
       </div>
     </div>
@@ -1431,7 +1449,7 @@ function ImageLightbox({ src, onClose }) {
 function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDelete, isMobile }) {
   const isActive = entity.type==="active";
   const hdr = hdrColor(entity);
-  const [tab, setTab] = useState(isActive?"overview":"contacts");
+  const [tab, setTab] = useState("contacts");
   const [note, setNote] = useState("");
   const [author, setAuthor] = useState("");
   const [updatePhoto, setUpdatePhoto] = useState(null);
@@ -1533,8 +1551,16 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
     setShowMeetingForm(true);
   };
 
+  const [showSummary, setShowSummary] = useState(false);
+  const summaryRef = useRef(null);
+  useEffect(()=>{
+    if (!showSummary) return;
+    const fn = e => { if (summaryRef.current && !summaryRef.current.contains(e.target)) setShowSummary(false); };
+    document.addEventListener("mousedown", fn);
+    return ()=>document.removeEventListener("mousedown", fn);
+  },[showSummary]);
   const tabs = isActive
-    ? [{id:"overview",l:"Resumen"},{id:"contacts",l:"Contactos"},{id:"meetings",l:"Reuniones"},{id:"updates",l:"Updates"}]
+    ? [{id:"contacts",l:"Contactos"},{id:"meetings",l:"Reuniones"},{id:"updates",l:"Updates"}]
     : [{id:"contacts",l:"Contactos"},{id:"meetings",l:"Reuniones"},{id:"updates",l:"Updates"}];
 
   const [reminderDate, setReminderDate]   = useState("");
@@ -1686,14 +1712,74 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
         </div>
 
         {/* Tabs */}
-        <div style={{display:"flex",gap:1,overflowX:"auto",position:"relative"}}>
+        <div style={{display:"flex",gap:1,overflowX:"auto",position:"relative",alignItems:"flex-end"}}>
+          {/* Ver más — summary dropdown */}
+          {isActive && (
+            <div style={{position:"relative"}} ref={summaryRef}>
+              <button onClick={()=>setShowSummary(s=>!s)} style={{
+                background:showSummary?"rgba(255,255,255,0.92)":"transparent",
+                color:showSummary?hdr:"rgba(255,255,255,0.45)",
+                border:"none",borderRadius:"8px 8px 0 0",
+                padding:isMobile?"9px 16px":"7px 14px",
+                fontSize:isMobile?13:11,fontWeight:showSummary?600:400,
+                cursor:"pointer",whiteSpace:"nowrap",
+                transition:"all 0.15s",letterSpacing:"-0.01em",
+                display:"flex",alignItems:"center",gap:4}}>
+                Ver más
+                <span style={{fontSize:8,opacity:0.5}}>{showSummary?"▲":"▼"}</span>
+              </button>
+              {showSummary && (
+                <div style={{position:"absolute",bottom:"100%",left:0,marginBottom:4,
+                  background:"rgba(255,255,255,0.97)",backdropFilter:"blur(16px)",
+                  WebkitBackdropFilter:"blur(16px)",
+                  borderRadius:12,boxShadow:DS.shadowXl,
+                  border:"1px solid rgba(0,0,0,0.06)",
+                  minWidth:220,zIndex:100,padding:14,
+                  animation:"fadeIn 0.12s ease"}}>
+                  {/* KPIs */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+                    {[
+                      {label:"ARR",value:"€"+Math.round(entity.arr/1000)+"k",color:DS.primaryMid},
+                      {label:"Clientes",value:entity.accounts,color:DS.primaryMid},
+                      {label:"Booking",value:"€"+Math.round((entity.booking2026||0)/1000)+"k",color:DS.success},
+                    ].map(k=>(
+                      <div key={k.label} style={{textAlign:"center",background:DS.surface,
+                        borderRadius:8,padding:"8px 4px"}}>
+                        <div style={{fontSize:14,fontWeight:700,color:k.color,letterSpacing:"-0.02em"}}>{k.value}</div>
+                        <div style={{fontSize:9,color:DS.subtle,textTransform:"uppercase",letterSpacing:"0.05em",marginTop:2}}>{k.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Info */}
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                    {[
+                      {icon:"📍",val:entity.city},
+                      {icon:"📅",val:entity.since?new Date(entity.since).getFullYear():null},
+                      {icon:"🔑",val:entity.cif},
+                      {icon:"📞",val:entity.phone},
+                      {icon:"✉️",val:entity.email},
+                      {icon:"🌐",val:entity.website,isLink:true},
+                    ].filter(r=>r.val).map(r=>(
+                      <div key={r.icon} style={{display:"flex",alignItems:"center",gap:6,fontSize:11}}>
+                        <span style={{fontSize:12,flexShrink:0}}>{r.icon}</span>
+                        {r.isLink
+                          ? <a href={entity.website} target="_blank" rel="noreferrer"
+                              style={{color:DS.accent,textDecoration:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{entity.website}</a>
+                          : <span style={{color:DS.body}}>{r.val}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {tabs.map(t=>(
-            <button key={t.id} onClick={()=>setTab(t.id)} style={{
-              background:tab===t.id?"rgba(255,255,255,0.92)":"transparent",
-              color:tab===t.id?hdr:"rgba(255,255,255,0.45)",
+            <button key={t.id} onClick={()=>{setTab(t.id);setShowSummary(false);}} style={{
+              background:tab===t.id&&!showSummary?"rgba(255,255,255,0.92)":"transparent",
+              color:tab===t.id&&!showSummary?hdr:"rgba(255,255,255,0.45)",
               border:"none",borderRadius:"8px 8px 0 0",
               padding:isMobile?"9px 16px":"7px 14px",
-              fontSize:isMobile?13:11,fontWeight:tab===t.id?600:400,
+              fontSize:isMobile?13:11,fontWeight:tab===t.id&&!showSummary?600:400,
               cursor:"pointer",whiteSpace:"nowrap",
               transition:"all 0.15s",letterSpacing:"-0.01em"}}>
               {t.l}
@@ -1892,170 +1978,6 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
           </div>
         )}
 
-        {/* OVERVIEW */}
-        {tab==="overview" && isActive && (
-          <div>
-            {/* KPI cards */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
-              {[
-                {label:"ARR 2025",value:"€"+Math.round(entity.arr/1000)+"k",color:hdr},
-                {label:"Clientes",value:entity.accounts,color:hdr},
-                {label:"Booking 2026",value:"€"+Math.round((entity.booking2026||0)/1000)+"k",color:"#059669"},
-              ].map(k=>(
-                <div key={k.label} style={{background:"#F8FAFC",border:"1px solid #E2E8F0",
-                  borderRadius:10,padding:isMobile?"14px 10px":"12px 10px",textAlign:"center"}}>
-                  <div style={{fontSize:10,color:"#94A3B8",fontWeight:700,textTransform:"uppercase",
-                    letterSpacing:"0.05em",marginBottom:4}}>{k.label}</div>
-                  <div style={{fontSize:isMobile?22:20,fontWeight:800,color:k.color}}>{k.value}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Company info block — read only */}
-            <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:10,
-              padding:"14px",marginBottom:14}}>
-              <div style={{fontSize:11,fontWeight:800,color:"#475569",textTransform:"uppercase",
-                letterSpacing:"0.05em",marginBottom:10}}>Información</div>
-              <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                {[
-                  {icon:"📍", label:"Ciudad",   val:entity.city},
-                  {icon:"📅", label:"Desde",    val:entity.since ? new Date(entity.since).getFullYear() : null},
-                  {icon:"🔑", label:"CIF",      val:entity.cif},
-                  {icon:"🏠", label:"Dirección",val:entity.address},
-                  {icon:"📞", label:"Teléfono", val:entity.phone},
-                  {icon:"✉️", label:"Email",    val:entity.email, isEmail:true},
-                  {icon:"🌐", label:"Web",      val:entity.website, isLink:true},
-                ].filter(r=>r.val).map(r=>(
-                  <div key={r.label} style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:12}}>
-                    <span style={{fontSize:13,flexShrink:0,marginTop:1}}>{r.icon}</span>
-                    <span style={{color:"#94A3B8",fontWeight:600,flexShrink:0,width:60}}>{r.label}</span>
-                    {r.isLink
-                      ? <a href={entity.website} target="_blank" rel="noreferrer"
-                          style={{color:"#2563EB",textDecoration:"none",wordBreak:"break-all"}}>{entity.website}</a>
-                      : r.isEmail
-                      ? <a href={"mailto:"+entity.email}
-                          style={{color:"#2563EB",textDecoration:"none",wordBreak:"break-all"}}>{entity.email}</a>
-                      : <span style={{color:"#1E293B"}}>{r.val}</span>
-                    }
-                  </div>
-                ))}
-                {!entity.city && !entity.cif && !entity.website && !entity.address && !entity.since && !entity.phone && !entity.email && (
-                  <span style={{fontSize:12,color:"#94A3B8"}}>Sin información. Usa ✏️ Editar para añadir.</span>
-                )}
-                {/* Locations */}
-                {(entity.locations||[]).length>0 && (
-                  <div style={{marginTop:6,paddingTop:8,borderTop:"1px solid #E2E8F0"}}>
-                    <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",
-                      letterSpacing:"0.05em",marginBottom:6}}>Oficinas</div>
-                    {entity.locations.filter(l=>l.name||l.address).map((loc,i)=>(
-                      <div key={i} style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:4,fontSize:12}}>
-                        <span style={{fontSize:13,flexShrink:0}}>🏢</span>
-                        <div>
-                          {loc.name && <span style={{fontWeight:600,color:"#1E293B"}}>{loc.name}</span>}
-                          {loc.address && <span style={{color:"#64748B",marginLeft:loc.name?6:0}}>{loc.address}</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Territories */}
-            <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:10,padding:"14px"}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#475569",textTransform:"uppercase",
-                letterSpacing:"0.05em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                Territorios asignados
-                <button onClick={()=>setEditField(editField?"":"prov")} style={{background:"#EEF2FF",border:"none",
-                  borderRadius:4,padding:"3px 8px",fontSize:10,color:"#4F46E5",cursor:"pointer",fontWeight:700}}>
-                  {editField?"Cerrar":"Editar"}
-                </button>
-              </div>
-              {editField && (
-                <div style={{marginBottom:8}}>
-                  <input value={provSearch} onChange={e=>setProvSearch(e.target.value)}
-                    placeholder="Buscar provincia…" style={{width:"100%",border:"1px solid #E2E8F0",
-                      borderRadius:8,padding:"8px 12px",fontSize:13,boxSizing:"border-box",
-                      fontFamily:"system-ui,sans-serif",marginBottom:4}}/>
-                  {filteredProv.length>0 && (
-                    <div style={{border:"1px solid #E2E8F0",borderRadius:8,maxHeight:130,overflowY:"auto",marginBottom:6}}>
-                      {filteredProv.map(pv=>{
-                        const isPrimary=(entity.provinces||[]).includes(pv);
-                        const isSecondary=(entity.provincesSecondary||[]).includes(pv);
-                        return (
-                          <div key={pv} style={{padding:"6px 12px",fontSize:13,cursor:"pointer",
-                            background:isPrimary?"#EEF2FF":isSecondary?"#F0FDF4":"white",
-                            borderBottom:"1px solid #F8FAFC",color:"#1E293B",
-                            display:"flex",justifyContent:"space-between",alignItems:"center"}}
-                            onClick={()=>{
-                              // cycle: none → primary → secondary → none
-                              if (!isPrimary && !isSecondary) {
-                                onUpdate({...entity,provinces:[...(entity.provinces||[]),pv]});
-                              } else if (isPrimary) {
-                                onUpdate({...entity,
-                                  provinces:(entity.provinces||[]).filter(x=>x!==pv),
-                                  provincesSecondary:[...(entity.provincesSecondary||[]),pv]});
-                              } else {
-                                onUpdate({...entity,
-                                  provincesSecondary:(entity.provincesSecondary||[]).filter(x=>x!==pv)});
-                              }
-                              setProvSearch("");
-                            }}>
-                            <span>{pv}</span>
-                            <span style={{fontSize:10,fontWeight:700,color:isPrimary?"#4F46E5":isSecondary?"#059669":"#94A3B8"}}>
-                              {isPrimary?"Principal":isSecondary?"Secundaria":"—"}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div style={{fontSize:10,color:"#94A3B8",fontStyle:"italic"}}>
-                    Click una vez → Principal · Click dos veces → Secundaria · Click tres → Quitar
-                  </div>
-                </div>
-              )}
-              {/* Primary */}
-              {(entity.provinces||[]).length>0 && (
-                <div style={{marginBottom:6}}>
-                  <div style={{fontSize:9,fontWeight:700,color:"#4F46E5",textTransform:"uppercase",
-                    letterSpacing:"0.06em",marginBottom:4}}>Principal</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                    {(entity.provinces||[]).map(pv=>(
-                      <span key={pv} style={{background:"#E0E7FF",color:"#3730A3",fontSize:12,
-                        fontWeight:500,padding:"3px 10px",borderRadius:10,cursor:editField?"pointer":"default"}}
-                        onClick={()=>editField&&onUpdate({...entity,provinces:(entity.provinces||[]).filter(x=>x!==pv),
-                          provincesSecondary:[...(entity.provincesSecondary||[]),pv]})}>
-                        {pv}{editField&&" →"}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {/* Secondary */}
-              {(entity.provincesSecondary||[]).length>0 && (
-                <div>
-                  <div style={{fontSize:9,fontWeight:700,color:"#059669",textTransform:"uppercase",
-                    letterSpacing:"0.06em",marginBottom:4}}>Secundaria</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                    {(entity.provincesSecondary||[]).map(pv=>(
-                      <span key={pv} style={{background:"#DCFCE7",color:"#166534",fontSize:12,
-                        fontWeight:500,padding:"3px 10px",borderRadius:10,cursor:editField?"pointer":"default"}}
-                        onClick={()=>editField&&onUpdate({...entity,
-                          provincesSecondary:(entity.provincesSecondary||[]).filter(x=>x!==pv)})}>
-                        {pv}{editField&&" ×"}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {!(entity.provinces||[]).length && !(entity.provincesSecondary||[]).length && (
-                <span style={{fontSize:12,color:"#94A3B8"}}>Sin territorios asignados</span>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* CONTACTS */}
         {tab==="contacts" && (
           <div>
@@ -2089,23 +2011,45 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                       <div style={{fontSize:12,color:"#7C3AED",fontWeight:600,marginTop:2}}>{c.role}</div>
                     </div>
                   </div>
-                  <div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>{setEditContact(c);setContactForm({name:c.name,role:c.role,email:c.email,phone:c.phone});setShowAddContact(true);}}
-                      style={{background:"#EEF2FF",border:"none",borderRadius:6,padding:"4px 8px",
-                        fontSize:11,color:"#4F46E5",cursor:"pointer",fontWeight:600}}>Editar</button>
-                    {confirmDeleteContact===c.id ? (
-                      <>
-                        <button onClick={()=>{onUpdate({...entity,contacts:(entity.contacts||[]).filter(x=>x.id!==c.id)});setConfirmDeleteContact(null);}}
-                          style={{background:"#DC2626",color:"white",border:"none",borderRadius:6,padding:"4px 8px",
-                            fontSize:11,cursor:"pointer",fontWeight:600}}>Confirmar</button>
-                        <button onClick={()=>setConfirmDeleteContact(null)}
-                          style={{background:"#F1F5F9",border:"none",borderRadius:6,padding:"4px 8px",
-                            fontSize:11,color:"#64748B",cursor:"pointer"}}>Cancel</button>
-                      </>
-                    ) : (
-                      <button onClick={()=>setConfirmDeleteContact(c.id)}
-                        style={{background:"#FEF2F2",border:"none",borderRadius:6,padding:"4px 8px",
-                          fontSize:11,color:"#DC2626",cursor:"pointer",fontWeight:600}}>×</button>
+                  <div style={{position:"relative"}}>
+                    <button onClick={()=>setUpdateMenu(updateMenu===("c-"+c.id)?null:"c-"+c.id)}
+                      style={{background:"none",border:"none",cursor:"pointer",
+                        color:DS.subtle,fontSize:18,lineHeight:1,padding:"2px 6px",
+                        borderRadius:6,transition:"background 0.1s"}}
+                      onMouseEnter={e=>e.currentTarget.style.background=DS.surfaceMid}
+                      onMouseLeave={e=>e.currentTarget.style.background="none"}>⋮</button>
+                    {updateMenu===("c-"+c.id) && (
+                      <div style={{position:"absolute",right:0,top:"100%",
+                        background:"rgba(255,255,255,0.97)",backdropFilter:"blur(12px)",
+                        borderRadius:10,boxShadow:DS.shadowLg,
+                        border:"1px solid rgba(0,0,0,0.06)",
+                        zIndex:60,minWidth:130,overflow:"hidden",animation:"fadeIn 0.1s ease"}}>
+                        <button onClick={()=>{setEditContact(c);setContactForm({name:c.name,role:c.role,email:c.email,phone:c.phone});setShowAddContact(true);setUpdateMenu(null);}}
+                          style={{width:"100%",padding:"9px 14px",background:"none",border:"none",
+                            cursor:"pointer",fontSize:12,textAlign:"left",color:DS.body,
+                            display:"flex",alignItems:"center",gap:8,transition:"background 0.1s"}}
+                          onMouseEnter={e=>e.currentTarget.style.background=DS.surface}
+                          onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                          ✏︎ Editar
+                        </button>
+                        <div style={{height:1,background:DS.borderLight,margin:"0 8px"}}/>
+                        {confirmDeleteContact===c.id ? (
+                          <button onClick={()=>{onUpdate({...entity,contacts:(entity.contacts||[]).filter(x=>x.id!==c.id)});setConfirmDeleteContact(null);setUpdateMenu(null);}}
+                            style={{width:"100%",padding:"9px 14px",background:"#FEF2F2",border:"none",
+                              cursor:"pointer",fontSize:12,textAlign:"left",color:DS.danger,fontWeight:600}}>
+                            ¿Confirmar?
+                          </button>
+                        ) : (
+                          <button onClick={()=>setConfirmDeleteContact(c.id)}
+                            style={{width:"100%",padding:"9px 14px",background:"none",border:"none",
+                              cursor:"pointer",fontSize:12,textAlign:"left",color:DS.danger,
+                              display:"flex",alignItems:"center",gap:8,transition:"background 0.1s"}}
+                            onMouseEnter={e=>e.currentTarget.style.background=DS.dangerBg}
+                            onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                            🗑 Eliminar
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -2337,14 +2281,41 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                         <span style={{fontSize:11,color:"#94A3B8",marginLeft:6,textTransform:"capitalize"}}>{m.type}</span>
                       </div>
                     </div>
-                  <div style={{display:"flex",alignItems:"center",gap:4}}>
-                    <button onClick={()=>startEditMeeting(m)}
-                      style={{background:"#EEF2FF",border:"none",borderRadius:6,padding:"4px 8px",
-                        fontSize:11,color:"#4F46E5",cursor:"pointer",fontWeight:600}}>✏️ Editar</button>
-                    <button onClick={()=>{
-                      if(!window.confirm("¿Eliminar esta reunión?")) return;
-                      onUpdate({...entity,meetings:(entity.meetings||[]).filter(x=>x.id!==m.id)});
-                    }} style={{background:"none",border:"none",color:"#CBD5E1",cursor:"pointer",fontSize:14,padding:"4px"}}>🗑</button>
+                  <div style={{position:"relative"}}>
+                    <button onClick={()=>setUpdateMenu(updateMenu===("m-"+m.id)?null:"m-"+m.id)}
+                      style={{background:"none",border:"none",cursor:"pointer",
+                        color:DS.subtle,fontSize:18,lineHeight:1,padding:"2px 6px",
+                        borderRadius:6,transition:"background 0.1s"}}
+                      onMouseEnter={e=>e.currentTarget.style.background=DS.surfaceMid}
+                      onMouseLeave={e=>e.currentTarget.style.background="none"}>⋮</button>
+                    {updateMenu===("m-"+m.id) && (
+                      <div style={{position:"absolute",right:0,top:"100%",
+                        background:"rgba(255,255,255,0.97)",backdropFilter:"blur(12px)",
+                        borderRadius:10,boxShadow:DS.shadowLg,
+                        border:"1px solid rgba(0,0,0,0.06)",
+                        zIndex:60,minWidth:130,overflow:"hidden",animation:"fadeIn 0.1s ease"}}>
+                        <button onClick={()=>{startEditMeeting(m);setUpdateMenu(null);}}
+                          style={{width:"100%",padding:"9px 14px",background:"none",border:"none",
+                            cursor:"pointer",fontSize:12,textAlign:"left",color:DS.body,
+                            display:"flex",alignItems:"center",gap:8,transition:"background 0.1s"}}
+                          onMouseEnter={e=>e.currentTarget.style.background=DS.surface}
+                          onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                          ✏︎ Editar
+                        </button>
+                        <div style={{height:1,background:DS.borderLight,margin:"0 8px"}}/>
+                        <button onClick={()=>{
+                          if(!window.confirm("¿Eliminar esta reunión?")) return;
+                          onUpdate({...entity,meetings:(entity.meetings||[]).filter(x=>x.id!==m.id)});
+                          setUpdateMenu(null);
+                        }} style={{width:"100%",padding:"9px 14px",background:"none",border:"none",
+                          cursor:"pointer",fontSize:12,textAlign:"left",color:DS.danger,
+                          display:"flex",alignItems:"center",gap:8,transition:"background 0.1s"}}
+                          onMouseEnter={e=>e.currentTarget.style.background=DS.dangerBg}
+                          onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                          🗑 Eliminar
+                        </button>
+                      </div>
+                    )}
                   </div>
                   </div>
                   {allAttendees.length>0 && (
@@ -2750,7 +2721,7 @@ function LoginScreen({ onLogin }) {
           <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
             width:52,height:52,background:"rgba(255,255,255,0.15)",borderRadius:14,
             backdropFilter:"blur(10px)",marginBottom:14,
-            border:"1px solid rgba(255,255,255,0.25)",
+            border:"1px solid rgba(255,255,255,0.48)",
             boxShadow:"0 8px 24px rgba(0,0,0,0.2)"}}>
             <span style={{fontSize:24}}>🗺</span>
           </div>
@@ -2799,7 +2770,7 @@ function LoginScreen({ onLogin }) {
                 outline:"none",transition:"border 0.15s"}}/>
             <button onClick={()=>setShowPw(v=>!v)}
               style={{position:"absolute",right:12,top:32,background:"none",border:"none",
-                cursor:"pointer",color:"rgba(255,255,255,0.35)",fontSize:13,padding:0,
+                cursor:"pointer",color:"rgba(255,255,255,0.55)",fontSize:13,padding:0,
                 lineHeight:1}}>
               {showPw?"🙈":"👁"}
             </button>
@@ -3377,7 +3348,7 @@ function AppInner({ session, onLogout }) {
           <div>
             <div style={{color:"white",fontWeight:700,fontSize:13,lineHeight:1.2,
               letterSpacing:"-0.02em"}}>PD Dashboard</div>
-            <div style={{color:"rgba(255,255,255,0.28)",fontSize:9,fontWeight:500,
+            <div style={{color:"rgba(255,255,255,0.5)",fontSize:9,fontWeight:500,
               letterSpacing:"0.06em",textTransform:"uppercase"}}>Cegid Revo</div>
           </div>
         </div>
@@ -3389,12 +3360,11 @@ function AppInner({ session, onLogout }) {
             {label:"Dashboard", active:view==="dashboard",
               onClick:()=>setView(v=>v==="dashboard"?"partners":"dashboard")},
             {label:"Mapa", active:view==="partners"&&showMap,
-              onClick:()=>{ setView("partners"); setShowMap(m=>!m); },
-              hide:view==="dashboard"},
-          ].filter(b=>!b.hide).map(btn=>(
+              onClick:()=>{ setView("partners"); setShowMap(m=>!m); }},
+          ].map(btn=>(
             <button key={btn.label} onClick={btn.onClick} style={{
               background:btn.active?"rgba(255,255,255,0.1)":"transparent",
-              color:btn.active?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.4)",
+              color:btn.active?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.6)",
               border:"none",borderRadius:7,padding:"5px 12px",
               fontSize:11,fontWeight:btn.active?600:400,cursor:"pointer",
               transition:"all 0.15s",letterSpacing:"-0.01em"}}>
@@ -3486,13 +3456,13 @@ function AppInner({ session, onLogout }) {
 
           {/* CSV */}
           <label style={{
-            background:"transparent",color:"rgba(255,255,255,0.38)",
+            background:"transparent",color:"rgba(255,255,255,0.55)",
             border:"1px solid rgba(255,255,255,0.1)",
             borderRadius:9,padding:"6px 12px",fontSize:11,cursor:"pointer",
             display:"flex",alignItems:"center",gap:4,
             transition:"all 0.15s",letterSpacing:"-0.01em"}}
             onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,0.07)";e.currentTarget.style.color="rgba(255,255,255,0.65)"}}
-            onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="rgba(255,255,255,0.38)"}}>
+            onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="rgba(255,255,255,0.55)"}}>
             ↑ Subir .csv
             <input type="file" accept=".csv" style={{display:"none"}}
               onChange={e=>{
@@ -3515,16 +3485,16 @@ function AppInner({ session, onLogout }) {
             boxShadow:"0 2px 6px rgba(0,0,0,0.25)",flexShrink:0}}>
             {(session.display_name||session.username||"?")[0].toUpperCase()}
           </div>
-          <span style={{fontSize:11,color:"rgba(255,255,255,0.38)",
+          <span style={{fontSize:11,color:"rgba(255,255,255,0.55)",
             maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
             {session.display_name||session.username}
           </span>
           <button onClick={onLogout} style={{
-            background:"transparent",color:"rgba(255,255,255,0.25)",
+            background:"transparent",color:"rgba(255,255,255,0.48)",
             border:"none",padding:"4px 2px",fontSize:11,cursor:"pointer",
             transition:"color 0.15s"}}
             onMouseEnter={e=>e.currentTarget.style.color="rgba(255,255,255,0.6)"}
-            onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.25)"}>
+            onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.48)"}>
             Salir
           </button>
         </div>
