@@ -1,62 +1,123 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import * as d3 from "d3";
 
-// ── Design System ──────────────────────────────────────────────────────────
+// ── Design System — Apple UI ───────────────────────────────────────────────
 const DS = {
-  // Colors
-  primary:    "#0F2D6B",   // deep navy — main brand
-  primaryMid: "#1E3A8A",   // Cegid blue — buttons, accents
-  primaryLight:"#EEF3FB",  // light blue tint — hover bg, tags
-  accent:     "#0066FF",   // bright blue — links, highlights
-  specialist: "#0891B2",   // teal — specialist level
-  success:    "#059669",
-  warning:    "#D97706",
-  danger:     "#DC2626",
-  prospect:   "#78716C",
-  // Neutrals
-  ink:        "#0F172A",   // headings
-  body:       "#334155",   // body text
-  muted:      "#64748B",   // secondary text
-  placeholder:"#94A3B8",
-  border:     "#E2E8F0",
-  borderMid:  "#CBD5E1",
-  surface:    "#F8FAFC",   // card backgrounds
-  surfaceMid: "#F1F5F9",
-  white:      "#FFFFFF",
-  bg:         "#F0F5FF",   // app background
-  // Typography scale
-  t10: "10px", t11: "11px", t12: "12px", t13: "13px",
-  t15: "15px", t18: "18px", t22: "22px",
-  // Radii
-  r4: "4px", r6: "6px", r8: "8px", r10: "10px", r12: "12px", r16: "16px",
-  // Shadows
-  shadowSm: "0 1px 3px rgba(15,45,107,0.06), 0 1px 2px rgba(15,45,107,0.04)",
-  shadowMd: "0 4px 12px rgba(15,45,107,0.08), 0 2px 4px rgba(15,45,107,0.05)",
-  shadowLg: "0 12px 32px rgba(15,45,107,0.12), 0 4px 8px rgba(15,45,107,0.06)",
+  // Brand
+  primary:      "#0A1628",   // near-black navy
+  primaryMid:   "#1D4ED8",   // vivid blue
+  primaryLight: "#EFF6FF",   // blue tint
+  accent:       "#2563EB",   // interactive blue
+  accentVivid:  "#3B82F6",   // hover blue
+  specialist:   "#0EA5E9",   // sky blue
+  // Status
+  success:    "#10B981",
+  successBg:  "#ECFDF5",
+  warning:    "#F59E0B",
+  warningBg:  "#FFFBEB",
+  danger:     "#EF4444",
+  dangerBg:   "#FEF2F2",
+  prospect:   "#8B5CF6",
+  prospectBg: "#F5F3FF",
+  // Neutrals — Apple-style warm grays
+  ink:         "#09090B",
+  title:       "#18181B",
+  body:        "#3F3F46",
+  muted:       "#71717A",
+  subtle:      "#A1A1AA",
+  border:      "#E4E4E7",
+  borderLight: "#F4F4F5",
+  surface:     "#FAFAFA",
+  surfaceMid:  "#F4F4F5",
+  white:       "#FFFFFF",
+  bg:          "#F8F9FC",
+  // Glassmorphism
+  glass:       "rgba(255,255,255,0.72)",
+  glassBorder: "rgba(255,255,255,0.5)",
+  glassBlur:   "blur(20px) saturate(180%)",
+  // Shadows — Apple-style
+  shadowXs: "0 1px 2px rgba(0,0,0,0.04)",
+  shadowSm: "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
+  shadowMd: "0 4px 16px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.04)",
+  shadowLg: "0 16px 48px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.06)",
+  shadowXl: "0 32px 64px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.08)",
   // Inject global CSS
   inject() {
     if (document.getElementById("ds-global")) return;
     const s = document.createElement("style");
     s.id = "ds-global";
     s.textContent = `
-      * { box-sizing: border-box; }
-      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; }
+      *, *::before, *::after { box-sizing: border-box; }
+      html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+      body { margin: 0; background: #F8F9FC;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif; }
       input, textarea, select, button { font-family: inherit; }
-      ::-webkit-scrollbar { width: 5px; height: 5px; }
+
+      /* Scrollbars */
+      ::-webkit-scrollbar { width: 4px; height: 4px; }
       ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
-      ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+      ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 99px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
+
+      /* Animations */
       @keyframes spin { to { transform: rotate(360deg); } }
-      @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
-      .ds-card { background:#fff; border:1px solid #E2E8F0; border-radius:10px; box-shadow:0 1px 3px rgba(15,45,107,0.06); }
-      .ds-input { width:100%; border:1px solid #E2E8F0; border-radius:8px; padding:9px 12px; font-size:13px; color:#0F172A; outline:none; transition:border-color 0.15s, box-shadow 0.15s; }
-      .ds-input:focus { border-color:#0066FF; box-shadow:0 0 0 3px rgba(0,102,255,0.1); }
-      .ds-btn-primary { background:#1E3A8A; color:#fff; border:none; border-radius:8px; padding:10px 16px; font-size:13px; font-weight:700; cursor:pointer; transition:background 0.15s; }
-      .ds-btn-primary:hover { background:#0F2D6B; }
-      .ds-btn-secondary { background:#F1F5F9; color:#334155; border:none; border-radius:8px; padding:10px 16px; font-size:13px; font-weight:600; cursor:pointer; transition:background 0.15s; }
-      .ds-btn-secondary:hover { background:#E2E8F0; }
-      .ds-label { font-size:10px; font-weight:700; color:#64748B; text-transform:uppercase; letter-spacing:0.06em; display:block; margin-bottom:5px; }
-      .ds-tag { display:inline-flex; align-items:center; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; }
+      @keyframes fadeIn { from { opacity:0; transform:translateY(6px) scale(0.99); } to { opacity:1; transform:translateY(0) scale(1); } }
+      @keyframes slideIn { from { opacity:0; transform:translateX(8px); } to { opacity:1; transform:translateX(0); } }
+
+      /* Utility classes */
+      .ds-glass {
+        background: rgba(255,255,255,0.72);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        border: 1px solid rgba(255,255,255,0.5);
+      }
+      .ds-card {
+        background: #fff;
+        border-radius: 14px;
+        border: 1px solid #E4E4E7;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      }
+      .ds-input {
+        width: 100%; border: 1.5px solid #E4E4E7; border-radius: 10px;
+        padding: 9px 13px; font-size: 13px; color: #18181B;
+        background: #fff; outline: none;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+      .ds-input:focus {
+        border-color: #2563EB;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+      }
+      .ds-input::placeholder { color: #A1A1AA; }
+      .ds-btn {
+        border: none; border-radius: 10px; cursor: pointer; font-weight: 600;
+        transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px;
+      }
+      .ds-btn-primary {
+        background: #1D4ED8; color: #fff; padding: 9px 18px; font-size: 13px;
+        box-shadow: 0 1px 2px rgba(29,78,216,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+      }
+      .ds-btn-primary:hover { background: #1E40AF; box-shadow: 0 4px 12px rgba(29,78,216,0.35); }
+      .ds-btn-secondary {
+        background: #F4F4F5; color: #3F3F46; padding: 9px 18px; font-size: 13px;
+        border: 1px solid #E4E4E7;
+      }
+      .ds-btn-secondary:hover { background: #E4E4E7; }
+      .ds-tag {
+        display: inline-flex; align-items: center; padding: 3px 9px;
+        border-radius: 99px; font-size: 11px; font-weight: 600; letter-spacing: 0.01em;
+      }
+      .ds-section-title {
+        font-size: 10px; font-weight: 700; color: #A1A1AA;
+        text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;
+      }
+
+      /* Sidebar item hover */
+      .sidebar-row { transition: background 0.1s; }
+      .sidebar-row:hover { background: #F4F4F5 !important; }
+      .sidebar-row.selected { background: #EFF6FF !important; border-left-color: #2563EB !important; }
+
+      /* Smooth panel animation */
+      .detail-panel { animation: slideIn 0.2s ease; }
     `;
     document.head.appendChild(s);
   }
@@ -71,15 +132,15 @@ function levelColor(e) {
 }
 function levelBg(e) {
   if (!e||e.type==="prospect") {
-    if (e?.stage==="Parado") return "#FEE2E2";
-    return "#FEF3C7";
+    if (e?.stage==="Parado") return DS.dangerBg;
+    return DS.prospectBg;
   }
-  return e.level==="premium" ? DS.primaryLight : "#ECFEFF";
+  return e.level==="premium" ? DS.primaryLight : "#E0F2FE";
 }
 function levelText(e) {
   if (!e||e.type==="prospect") {
     if (e?.stage==="Parado") return DS.danger;
-    return DS.warning;
+    return DS.prospect;
   }
   return e.level==="premium" ? DS.primaryMid : DS.specialist;
 }
@@ -90,19 +151,19 @@ function levelLabel(e) {
 }
 function hdrColor(entity) {
   if (!entity) return DS.primaryMid;
-  if (entity.type==="active") return entity.level==="premium" ? DS.primary : DS.specialist;
-  return DS.prospect;
+  if (entity.type==="active") return entity.level==="premium" ? DS.primary : "#0369A1";
+  return "#4C1D95";
 }
 
 // ── Supabase config ────────────────────────────────────────────────────────
 const SB_URL  = "https://yajtkaumgxnzarvslzgn.supabase.co";
 const SB_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhanRrYXVtZ3huemFydnNsemduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxOTA1NDcsImV4cCI6MjA4ODc2NjU0N30._QKK3rZtCYPuMO2l9j3lsOPa7gJ-hhp2Idzf_QBQgjs";
 const ROW_ID  = "pd-dashboard-v1";
-const HEADERS = { "Content-Type": "application/json", "apikey": SB_KEY, "Authorization": `Bearer ${SB_KEY}` };
+const HEADERS = { "Content-Type": "application/json", "apikey": SB_KEY, "Authorization": "Bearer "+SB_KEY };
 
 async function dbLoad() {
   try {
-    const res = await fetch(`${SB_URL}/rest/v1/entities?id=eq.${ROW_ID}&select=data`, { headers: HEADERS });
+    const res = await fetch(SB_URL+"/rest/v1/entities?id=eq."+ROW_ID+"&select=data", { headers: HEADERS });
     if (!res.ok) return null;
     const rows = await res.json();
     return rows.length ? rows[0].data : null;
@@ -111,7 +172,7 @@ async function dbLoad() {
 
 async function dbSave(d) {
   try {
-    await fetch(`${SB_URL}/rest/v1/entities`, {
+    await fetch(SB_URL+"/rest/v1/entities", {
       method: "POST",
       headers: { ...HEADERS, "Prefer": "resolution=merge-duplicates" },
       body: JSON.stringify({ id: ROW_ID, data: d, updated_at: new Date().toISOString() })
@@ -129,7 +190,7 @@ async function authLogin(username, password) {
   try {
     const hash = await sha256(password);
     const res = await fetch(
-      `${SB_URL}/rest/v1/users?username=eq.${encodeURIComponent(username.toLowerCase().trim())}&active=eq.true&select=id,username,display_name,role`,
+      SB_URL+"/rest/v1/users?username=eq."+encodeURIComponent(username.toLowerCase().trim())+"&active=eq.true&select=id,username,display_name,role",
       { headers: HEADERS }
     );
     if (!res.ok) return null;
@@ -137,7 +198,7 @@ async function authLogin(username, password) {
     if (!rows.length) return null;
     // Verify password hash
     const res2 = await fetch(
-      `${SB_URL}/rest/v1/users?id=eq.${rows[0].id}&password_hash=eq.${hash}&select=id`,
+      SB_URL+"/rest/v1/users?id=eq."+rows[0].id+"&password_hash=eq."+hash+"&select=id",
       { headers: HEADERS }
     );
     if (!res2.ok) return null;
@@ -363,7 +424,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
 
     function loadScript(src) {
       return new Promise((resolve, reject) => {
-        if (document.querySelector(`script[src="${src}"]`) && window.topojson) { resolve(); return; }
+        if (document.querySelector("script[src=""+src+""]") && window.topojson) { resolve(); return; }
         const s = document.createElement("script");
         s.src = src;
         s.onload = resolve;
@@ -386,8 +447,8 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
           fetch("https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson"),
         ]);
 
-        if (!spRes.ok) throw new Error(`Spain GeoJSON failed: ${spRes.status}`);
-        if (!ptRes.ok) throw new Error(`Portugal GeoJSON failed: ${ptRes.status}`);
+        if (!spRes.ok) throw new Error("Spain GeoJSON failed: "+spRes.status);
+        if (!ptRes.ok) throw new Error("Portugal GeoJSON failed: "+ptRes.status);
 
         const [spGeo, ptGeo] = await Promise.all([spRes.json(), ptRes.json()]);
         if (cancelled) return;
@@ -486,8 +547,13 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
     const raw = f.properties?.name || f.properties?.NAME_2 || f.properties?.NAME || f.properties?.Distrito || "";
     const norm = normName(raw);
     const ps = provMap[norm] || [];
-    const isSelected = selected && ps.some(p => p.id === selected.id);
-    const isHovered = hovered && (hovered.provinces||[]).includes(norm);
+    const psSecondary = provMapSecondary[norm] || [];
+    const isSelectedPrimary = selected && ps.some(p => p.id === selected.id);
+    const isSelectedSecondary = selected && psSecondary.some(p => p.id === selected.id);
+    const isSelected = isSelectedPrimary || isSelectedSecondary;
+    const isHoveredPrimary = hovered && (hovered.provinces||[]).includes(norm);
+    const isHoveredSecondary = hovered && (hovered.provincesSecondary||[]).includes(norm);
+    const isHovered = isHoveredPrimary || isHoveredSecondary;
     const isGeoHL = geoHighlight?.province === norm;
     const d = pathGen(f);
     if (!d) return null;
@@ -497,14 +563,20 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
     const hasHighlight = selected || hovered || geoHighlight;
     const isHighlighted = isSelected || isHovered || isGeoHL;
     const secondaryOnly = isSecondaryOnly(norm);
-    const activeFill = isGeoHL ? "#FEF08A" : (isHighlighted ? HIGHLIGHT_COLOR : fill);
-    const hatchIdx = secondaryOnly ? Math.min((provMapSecondary[norm]||[]).length, DENSITY.length-1) : 0;
+    // When highlighted as secondary, use hatch pattern over highlight color
+    const isSecondaryHighlight = (isSelectedSecondary && !isSelectedPrimary) || (isHoveredSecondary && !isHoveredPrimary);
+    const hatchIdx = Math.min((psSecondary.length||1), DENSITY.length-1);
+    const highlightFill = isGeoHL ? "#FEF08A"
+      : isSecondaryHighlight ? "url(#hatch-highlight)"
+      : isHighlighted ? HIGHLIGHT_COLOR
+      : secondaryOnly ? "url(#hatch-"+Math.min(psSecondary.length, DENSITY.length-1)+")"
+      : fill;
     return (
-      <g key={`${i}-${norm}`}
+      <g key={i+"-"+norm}
         onClick={(e) => handleClick(norm, e)}
         style={{cursor: (ps.length||(provMapSecondary[norm]||[]).length) ? "pointer" : "default"}}>
         <path d={d}
-          fill={isHighlighted ? HIGHLIGHT_COLOR : (secondaryOnly ? `url(#hatch-${hatchIdx})` : fill)}
+          fill={highlightFill}
           opacity={hasHighlight && !isHighlighted ? 0.25 : 1}
           stroke="rgba(255,255,255,0.4)"
           strokeWidth={0.6}
@@ -517,16 +589,21 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
 
   return (
     <div ref={containerRef} style={{position:"relative",width:"100%",height:"100%"}}>
-      <svg ref={svgRef} viewBox={`0 0 ${dims.w} ${dims.h}`}
+      <svg ref={svgRef} viewBox={"0 0 "+dims.w+" "+dims.h}
         style={{width:"100%",height:"100%",display:"block"}}
         onClick={()=>setTooltip(null)}>
         <defs>
           {DENSITY.slice(1).map((color,i)=>(
-            <pattern key={i} id={`hatch-${i+1}`} patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+            <pattern key={i} id={"hatch-"+i+1} patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
               <rect width="6" height="6" fill={color} opacity="0.35"/>
               <line x1="0" y1="0" x2="0" y2="6" stroke="#94A3B8" strokeWidth="1.5"/>
             </pattern>
           ))}
+          {/* Hatch pattern for highlighted secondary provinces */}
+          <pattern id="hatch-highlight" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill={HIGHLIGHT_COLOR}/>
+            <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.45)" strokeWidth="1.8"/>
+          </pattern>
         </defs>
         <rect width={dims.w} height={dims.h} fill="#DBEAFE" rx="8"/>
 
@@ -548,7 +625,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
           if (["Las Palmas","Santa Cruz de Tenerife","Ceuta","Melilla"].includes(norm)) return null;
           return renderFeature(f,i);
         })}
-        {geoPortugal && pathGen && geoPortugal.map((f,i)=>renderFeature(f,`pt-${i}`))}
+        {geoPortugal && pathGen && geoPortugal.map((f,i)=>renderFeature(f,"pt-"+i))}
 
         {/* Exterior-only border for hovered/selected partner */}
         {pathGen && (()=>{
@@ -557,35 +634,58 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
           else if (selected) activeEntities.push({ entity: selected });
 
           return activeEntities.map(({ entity }) => {
-            const provs = entity.provinces || [];
-            if (!provs.length) return null;
+            const provsPrimary = entity.provinces || [];
+            const provsSecondary = entity.provincesSecondary || [];
             const allFeatures = [...(geoSpain||[]), ...(geoPortugal||[])];
-            const matchingFeatures = allFeatures.filter(f => {
+
+            const matchPrimary = allFeatures.filter(f => {
               const norm = normName(f.properties?.name||f.properties?.NAME_2||f.properties?.NAME||f.properties?.Distrito||"");
-              return provs.includes(norm);
+              return provsPrimary.includes(norm);
             });
-            if (!matchingFeatures.length) return null;
-            const combinedD = matchingFeatures.map(f=>pathGen(f)).filter(Boolean).join(" ");
-            const maskId = `mask-ext-${entity.id}`;
-            // Exterior mask: black inside, white outside → clips stroke to exterior only
-            return (
-              <g key={`border-${entity.id}`} style={{pointerEvents:"none"}}>
-                <defs>
-                  <mask id={maskId}>
-                    <rect width={dims.w} height={dims.h} fill="white"/>
-                    <path d={combinedD} fill="black"/>
-                  </mask>
-                </defs>
-                {/* Thick stroke, masked to exterior only → only outer border visible */}
-                <path d={combinedD}
-                  fill="none"
-                  stroke="#93C5FD"
-                  strokeWidth={4}
-                  strokeLinejoin="round"
-                  mask={`url(#${maskId})`}
-                />
-              </g>
-            );
+            const matchSecondary = allFeatures.filter(f => {
+              const norm = normName(f.properties?.name||f.properties?.NAME_2||f.properties?.NAME||f.properties?.Distrito||"");
+              return provsSecondary.includes(norm) && !provsPrimary.includes(norm);
+            });
+
+            const results = [];
+
+            if (matchPrimary.length) {
+              const combinedD = matchPrimary.map(f=>pathGen(f)).filter(Boolean).join(" ");
+              const maskId = "mask-ext-"+entity.id+"-p";
+              results.push(
+                <g key={"border-primary-"+entity.id} style={{pointerEvents:"none"}}>
+                  <defs>
+                    <mask id={maskId}>
+                      <rect width={dims.w} height={dims.h} fill="white"/>
+                      <path d={combinedD} fill="black"/>
+                    </mask>
+                  </defs>
+                  <path d={combinedD} fill="none" stroke="#93C5FD"
+                    strokeWidth={4} strokeLinejoin="round" mask={"url(#"+maskId+")"}/>
+                </g>
+              );
+            }
+
+            if (matchSecondary.length) {
+              const combinedD = matchSecondary.map(f=>pathGen(f)).filter(Boolean).join(" ");
+              const maskId = "mask-ext-"+entity.id+"-s";
+              results.push(
+                <g key={"border-secondary-"+entity.id} style={{pointerEvents:"none"}}>
+                  <defs>
+                    <mask id={maskId}>
+                      <rect width={dims.w} height={dims.h} fill="white"/>
+                      <path d={combinedD} fill="black"/>
+                    </mask>
+                  </defs>
+                  <path d={combinedD} fill="none" stroke="#93C5FD"
+                    strokeWidth={4} strokeLinejoin="round"
+                    strokeDasharray="6 3"
+                    mask={"url(#"+maskId+")"}/>
+                </g>
+              );
+            }
+
+            return results.length ? <g key={entity.id}>{results}</g> : null;
           });
         })()}
 
@@ -598,7 +698,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
             if (!cx||!cy) return null;
             const label = norm.length>11 ? norm.substring(0,10)+"." : norm;
             return (
-              <text key={`lbl-${i}`} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+              <text key={"lbl-"+i} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
                 fontSize={norm.length>9?"6":"7"} fill="rgba(255,255,255,0.92)"
                 fontFamily="system-ui,sans-serif" fontWeight="600"
                 style={{userSelect:"none"}}>{label}</text>
@@ -610,7 +710,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
             if (!cx||!cy) return null;
             const label = norm.length>11 ? norm.substring(0,10)+"." : norm;
             return (
-              <text key={`lbl-pt-${i}`} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+              <text key={"lbl-pt-"+i} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
                 fontSize={norm.length>9?"6":"7"} fill="rgba(255,255,255,0.92)"
                 fontFamily="system-ui,sans-serif" fontWeight="600"
                 style={{userSelect:"none"}}>{label}</text>
@@ -651,7 +751,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
                       </defs>
                       <path d={d} fill="none" stroke="#93C5FD"
                         strokeWidth={4} strokeLinejoin="round"
-                        mask={`url(#${maskId})`}/>
+                        mask={"url(#"+maskId+")"}/>
                     </g>
                   )}
                   {/* Label */}
@@ -836,7 +936,7 @@ function LocalitySearch({ normName, onHighlight }) {
     if (q.trim().length < 2) { setSuggestions([]); setOpen(false); return; }
     setSearching(true);
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=15&countrycodes=es,ad&accept-language=es`;
+      const url = "https://nominatim.openstreetmap.org/search?q="+encodeURIComponent(q)+"&format=json&addressdetails=1&limit=15&countrycodes=es,ad&accept-language=es";
       const res = await fetch(url, { headers: { "Accept-Language": "es" } });
       const results = await res.json();
 
@@ -858,10 +958,10 @@ function LocalitySearch({ normName, onHighlight }) {
                        province.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes(qLower);
         if (!passes) continue;
 
-        const key = `${locality}-${province}`;
+        const key = locality+"-"+province;
         if (seen.has(key)) continue;
         seen.add(key);
-        items.push({ locality, province, display: locality ? `${locality} (${province})` : province });
+        items.push({ locality, province, display: locality ? locality+" ("+province+")" : province });
         if (items.length >= 7) break;
       }
       setSuggestions(items);
@@ -957,7 +1057,7 @@ function LocalitySearch({ normName, onHighlight }) {
 // ── Canarias inset ─────────────────────────────────────────────────────────
 function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selected, hovered, densityColors }) {
   const [sharedPopup, setSharedPopup] = useState(null);
-  const W=200, H=100;
+  const W=240, H=120;
   const HIGHLIGHT_COLOR = "#1E3A8A";
   const getColor = (norm) => densityColors[Math.min((provMap[norm]||[]).length, densityColors.length-1)];
 
@@ -986,7 +1086,7 @@ function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selecte
         letterSpacing:"0.07em",marginBottom:4}}>Canarias</div>
       {insetPath && canFeatures.length ? (
         <div style={{position:"relative"}}>
-          <svg viewBox={`0 0 ${W} ${H}`} style={{width:W,height:H,display:"block"}}>
+          <svg viewBox={"0 0 "+W+" "+H} style={{width:W,height:H,display:"block"}}>
             <rect width={W} height={H} fill="#DBEAFE" rx="4"/>
 
             {/* Fill pass */}
@@ -1025,7 +1125,7 @@ function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selecte
               });
               if (!matchingFeatures.length) return null;
               const combinedD = matchingFeatures.map(f=>insetPath(f)).filter(Boolean).join(" ");
-              const maskId = `can-mask-${activeEntity.id}`;
+              const maskId = "can-mask-"+activeEntity.id;
               return (
                 <g style={{pointerEvents:"none"}}>
                   <defs>
@@ -1036,7 +1136,7 @@ function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selecte
                   </defs>
                   <path d={combinedD}
                     fill="none" stroke="#93C5FD" strokeWidth={4}
-                    strokeLinejoin="round" mask={`url(#${maskId})`}/>
+                    strokeLinejoin="round" mask={"url(#"+maskId+")"}/>
                 </g>
               );
             })()}
@@ -1049,7 +1149,7 @@ function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selecte
                 const [cx,cy] = insetPath.centroid(f);
                 if (!cx||!cy) return null;
                 return (
-                  <text key={`lbl-${i}`} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+                  <text key={"lbl-"+i} x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
                     fontSize="6" fill={ps.length?"rgba(255,255,255,0.92)":"#94A3B8"}
                     fontFamily="system-ui,sans-serif" fontWeight="600"
                     style={{userSelect:"none"}}>
@@ -1119,7 +1219,7 @@ function PromoteModal({ entity, onClose, onPromote }) {
           {[{v:"premium",l:"Premium Partner",d:"Acceso a EARLY-3 y EARLY-12",c:"#1E3A8A",bg:"#EEF2FF"},
             {v:"specialist",l:"Specialist",d:"Descuentos base NB/RR",c:"#0891B2",bg:"#ECFEFF"}].map(opt=>(
             <div key={opt.v} onClick={()=>setLevel(opt.v)} style={{
-              border:`2px solid ${level===opt.v?opt.c:"#E2E8F0"}`,borderRadius:10,
+              border:"2px solid "+level===opt.v?opt.c:"#E2E8F0",borderRadius:10,
               padding:"12px 14px",cursor:"pointer",background:level===opt.v?opt.bg:"white",
               transition:"all 0.15s"}}>
               <div style={{fontSize:13,fontWeight:700,color:level===opt.v?opt.c:"#1E293B"}}>{opt.l}</div>
@@ -1204,7 +1304,7 @@ function NewModal({ type, onClose, onSave }) {
           <button onClick={()=>{
             if(!form.name.trim())return;
             const today = new Date();
-            const dateStr = `${today.getDate().toString().padStart(2,"0")}/${(today.getMonth()+1).toString().padStart(2,"0")}/${today.getFullYear()}`;
+            const dateStr = today.getDate().toString().padStart(2,"0")+"/"+(today.getMonth()+1).toString().padStart(2,"0")+"/"+today.getFullYear();
             const initialUpdates = form.notes?.trim()
               ? [{id:"u"+Date.now(), date:dateStr, text:form.notes.trim()}]
               : [];
@@ -1446,7 +1546,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   const addNote = () => {
     if (!note.trim() || !author) return;
     const today = new Date();
-    const date = `${today.getDate().toString().padStart(2,"0")}/${(today.getMonth()+1).toString().padStart(2,"0")}/${today.getFullYear()}`;
+    const date = today.getDate().toString().padStart(2,"0")+"/"+(today.getMonth()+1).toString().padStart(2,"0")+"/"+today.getFullYear();
     const reminder = showReminder && reminderDate
       ? { date: reminderDate, time: reminderTime||"09:00", user: reminderUser||author, note: reminderNote||"", done: false }
       : undefined;
@@ -1495,16 +1595,20 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
     <div style={panelStyle}>
       {lightboxPhoto && <ImageLightbox src={lightboxPhoto} onClose={()=>setLightboxPhoto(null)}/>}
 
-      {/* Header */}
-      <div style={{background:`linear-gradient(160deg, ${hdr} 0%, ${hdr}ee 100%)`,
-        padding:isMobile?"16px 16px 0":"16px 18px 0",flexShrink:0,
-        boxShadow:"inset 0 -1px 0 rgba(255,255,255,0.1)"}}>
+      {/* Header — Apple style */}
+      <div style={{
+        background:"linear-gradient(160deg,"+hdr+" 0%,"+hdr+"E8 100%)",
+        padding:isMobile?"18px 18px 0":"16px 20px 0",
+        flexShrink:0,position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",inset:0,
+          background:"radial-gradient(ellipse at top right,rgba(255,255,255,0.12),transparent 60%)",
+          pointerEvents:"none"}}/>
 
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",
+          alignItems:"flex-start",marginBottom:12,position:"relative"}}>
           <div style={{flex:1,minWidth:0}}>
-            {/* Status badge */}
             {editingStatus ? (
-              <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
+              <div style={{display:"flex",gap:4,marginBottom:10,flexWrap:"wrap"}}>
                 {(isActive
                   ? [{v:"premium",l:"Premium"},{v:"specialist",l:"Specialist"}]
                   : ["Primer contacto","Negociación","Propuesta enviada","Contrato pendiente","Parado"].map(s=>({v:s,l:s}))
@@ -1513,80 +1617,85 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                     onUpdate({...entity,...(isActive?{level:opt.v}:{stage:opt.v})});
                     setEditingStatus(false);
                   }} style={{
-                    background:((isActive?entity.level:entity.stage)===opt.v)?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.15)",
-                    color:((isActive?entity.level:entity.stage)===opt.v)?hdr:"rgba(255,255,255,0.9)",
-                    border:"1px solid rgba(255,255,255,0.25)",borderRadius:6,padding:"4px 10px",
-                    fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                    background:((isActive?entity.level:entity.stage)===opt.v)?"rgba(255,255,255,0.92)":"rgba(255,255,255,0.1)",
+                    color:((isActive?entity.level:entity.stage)===opt.v)?hdr:"rgba(255,255,255,0.8)",
+                    border:"1px solid rgba(255,255,255,0.18)",borderRadius:8,padding:"4px 10px",
+                    fontSize:11,fontWeight:600,cursor:"pointer",transition:"all 0.15s"}}>
                     {opt.l}
                   </button>
                 ))}
                 <button onClick={()=>setEditingStatus(false)} style={{
-                  background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.6)",
-                  border:"none",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>✕</button>
+                  background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.4)",
+                  border:"none",borderRadius:8,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>✕</button>
               </div>
             ) : (
               <button onClick={()=>setEditingStatus(true)} style={{
-                background:"rgba(255,255,255,0.15)",color:"rgba(255,255,255,0.9)",
-                fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:20,
-                textTransform:"uppercase",letterSpacing:"0.06em",
-                border:"1px solid rgba(255,255,255,0.25)",cursor:"pointer",marginBottom:7,
-                display:"inline-flex",alignItems:"center",gap:4}}>
-                {isActive?entity.level:entity.stage||"Prospecto"} ✎
+                background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.75)",
+                fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:99,
+                letterSpacing:"0.05em",textTransform:"uppercase",
+                border:"1px solid rgba(255,255,255,0.15)",cursor:"pointer",marginBottom:8,
+                display:"inline-flex",alignItems:"center",gap:5,transition:"all 0.15s"}}>
+                {isActive?entity.level:entity.stage||"Prospecto"}
+                <span style={{opacity:0.4,fontSize:9}}>✎</span>
               </button>
             )}
-
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               {entity.logo && (
-                <img src={entity.logo} style={{width:34,height:34,borderRadius:8,
-                  objectFit:"contain",background:"rgba(255,255,255,0.15)",padding:3,flexShrink:0}}/>
+                <img src={entity.logo} style={{width:36,height:36,borderRadius:10,
+                  objectFit:"contain",background:"rgba(255,255,255,0.12)",padding:4,
+                  flexShrink:0,boxShadow:"0 2px 8px rgba(0,0,0,0.2)"}}/>
               )}
-              <div style={{fontSize:isMobile?16:14,fontWeight:800,color:"white",lineHeight:1.25,
-                letterSpacing:"-0.01em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              <div style={{fontSize:isMobile?17:15,fontWeight:700,color:"white",
+                lineHeight:1.25,letterSpacing:"-0.02em",
+                overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                 {entity.name}
               </div>
             </div>
-
-            <div style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:5,
-              display:"flex",alignItems:"center",flexWrap:"wrap",gap:8}}>
-              {entity.city}{isActive&&entity.since?` · desde ${entity.since.split("-")[0]}`:""}
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.45)",marginTop:6,
+              display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              {entity.city}{isActive&&entity.since?" · desde "+entity.since.split("-")[0]:""}
               {!isActive && (
                 <button onClick={()=>setShowPromote(true)} style={{
-                  background:"rgba(16,185,129,0.9)",color:"white",border:"none",borderRadius:6,
-                  padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                  background:"rgba(16,185,129,0.8)",color:"white",border:"none",borderRadius:7,
+                  padding:"2px 10px",fontSize:10,fontWeight:600,cursor:"pointer"}}>
                   ↑ Convertir
                 </button>
               )}
             </div>
           </div>
-
           <div style={{display:"flex",gap:5,alignItems:"center",flexShrink:0,marginLeft:10}}>
             <button onClick={()=>setShowEditModal(true)} style={{
-              background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.25)",
-              color:"white",borderRadius:7,padding:"5px 10px",fontSize:11,fontWeight:600,
-              cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
-              ✏️ <span style={{fontSize:10}}>Editar</span>
+              background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.15)",
+              color:"rgba(255,255,255,0.8)",borderRadius:8,padding:"5px 10px",
+              fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",gap:3,
+              transition:"all 0.15s"}}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.18)"}
+              onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"}>
+              ✏︎ <span style={{fontSize:10}}>Editar</span>
             </button>
             <button onClick={onClose} style={{
-              background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.2)",
-              color:"white",width:30,height:30,borderRadius:"50%",cursor:"pointer",
-              fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.12)",
+              color:"rgba(255,255,255,0.6)",width:30,height:30,borderRadius:"50%",
+              cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",
+              justifyContent:"center",transition:"all 0.15s"}}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.18)"}
+              onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"}>
               {isMobile?"←":"×"}
             </button>
           </div>
         </div>
 
         {/* Tabs */}
-        <div style={{display:"flex",gap:1,overflowX:"auto",marginTop:2}}>
+        <div style={{display:"flex",gap:1,overflowX:"auto",position:"relative"}}>
           {tabs.map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)} style={{
-              background: tab===t.id ? "rgba(255,255,255,0.95)" : "transparent",
-              color: tab===t.id ? hdr : "rgba(255,255,255,0.65)",
-              border:"none",borderRadius:"6px 6px 0 0",
-              padding: isMobile?"9px 16px":"7px 14px",
-              fontSize: isMobile?13:11,fontWeight: tab===t.id?700:500,
+              background:tab===t.id?"rgba(255,255,255,0.92)":"transparent",
+              color:tab===t.id?hdr:"rgba(255,255,255,0.45)",
+              border:"none",borderRadius:"8px 8px 0 0",
+              padding:isMobile?"9px 16px":"7px 14px",
+              fontSize:isMobile?13:11,fontWeight:tab===t.id?600:400,
               cursor:"pointer",whiteSpace:"nowrap",
-              transition:"background 0.15s, color 0.15s",
-              letterSpacing:tab===t.id?"0":"-0.01em"}}>
+              transition:"all 0.15s",letterSpacing:"-0.01em"}}>
               {t.l}
             </button>
           ))}
@@ -1594,24 +1703,40 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
       </div>
 
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px":"16px 18px",
-        background:DS.surface}}>
+        background:"#FAFAFA"}}>
         {showPromote && <PromoteModal entity={entity} onClose={()=>setShowPromote(false)} onPromote={onPromote}/>}
 
         {/* EDIT MODAL */}
         {showEditModal && (
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:300,
-            display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-            <div style={{background:"white",borderRadius:14,width:"100%",maxWidth:440,
-              maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,0.18)",
-              fontFamily:"system-ui,sans-serif"}}>
-              <div style={{padding:"18px 20px",borderBottom:"1px solid #E2E8F0",
+          <div style={{position:"fixed",inset:0,
+            background:"rgba(0,0,0,0.4)",backdropFilter:"blur(8px)",
+            WebkitBackdropFilter:"blur(8px)",
+            zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",
+            padding:20,animation:"fadeIn 0.15s ease"}}>
+            <div style={{
+              background:"rgba(255,255,255,0.97)",
+              backdropFilter:"blur(20px)",
+              borderRadius:20,width:"100%",maxWidth:460,
+              maxHeight:"90vh",overflowY:"auto",
+              boxShadow:"0 32px 80px rgba(0,0,0,0.15),0 8px 24px rgba(0,0,0,0.08)",
+              border:"1px solid rgba(0,0,0,0.06)"}}>
+              <div style={{padding:"20px 22px",borderBottom:"1px solid "+DS.borderLight,
                 display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{fontSize:15,fontWeight:800,color:"#1E293B"}}>Editar {entity.name}</div>
-                <button onClick={()=>setShowEditModal(false)} style={{background:"#F1F5F9",
-                  border:"none",borderRadius:"50%",width:30,height:30,cursor:"pointer",
-                  fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",color:"#64748B"}}>×</button>
+                <div>
+                  <div style={{fontSize:15,fontWeight:700,color:DS.title,letterSpacing:"-0.02em"}}>
+                    Editar partner
+                  </div>
+                  <div style={{fontSize:11,color:DS.subtle,marginTop:2}}>{entity.name}</div>
+                </div>
+                <button onClick={()=>setShowEditModal(false)} style={{
+                  background:DS.surfaceMid,border:"none",borderRadius:"50%",
+                  width:28,height:28,cursor:"pointer",fontSize:14,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  color:DS.muted,transition:"background 0.15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.background=DS.border}
+                  onMouseLeave={e=>e.currentTarget.style.background=DS.surfaceMid}>×</button>
               </div>
-              <div style={{padding:"18px 20px"}}>
+              <div style={{padding:"18px 22px"}}>
                 {/* Logo */}
                 <div style={{marginBottom:16}}>
                   <label style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",
@@ -1808,7 +1933,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                       ? <a href={entity.website} target="_blank" rel="noreferrer"
                           style={{color:"#2563EB",textDecoration:"none",wordBreak:"break-all"}}>{entity.website}</a>
                       : r.isEmail
-                      ? <a href={`mailto:${entity.email}`}
+                      ? <a href={"mailto:"+entity.email}
                           style={{color:"#2563EB",textDecoration:"none",wordBreak:"break-all"}}>{entity.email}</a>
                       : <span style={{color:"#1E293B"}}>{r.val}</span>
                     }
@@ -1937,7 +2062,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
             {[...(entity.contacts||[])].sort((a,b)=>(b.primary?1:0)-(a.primary?1:0)).map(c=>(
               <div key={c.id} style={{
                 background: c.primary ? "#FFFBEB" : "#F8FAFC",
-                border: `1px solid ${c.primary ? "#FCD34D" : "#E2E8F0"}`,
+                border: "1px solid "+c.primary ? "#FCD34D" : "#E2E8F0",
                 borderRadius:10,padding:"14px",marginBottom:10}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                   <div style={{display:"flex",alignItems:"flex-start",gap:8,flex:1}}>
@@ -1985,11 +2110,11 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                   </div>
                 </div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:12,paddingLeft:28}}>
-                  <a href={`mailto:${c.email}`} style={{fontSize:12,color:"#2563EB",
+                  <a href={"mailto:"+c.email} style={{fontSize:12,color:"#2563EB",
                     textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>
                     ✉ {c.email}
                   </a>
-                  <a href={`tel:${c.phone}`} style={{fontSize:12,color:"#374151",
+                  <a href={"tel:"+c.phone} style={{fontSize:12,color:"#374151",
                     textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>
                     📱 {c.phone}
                   </a>
@@ -2341,7 +2466,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
               <div style={{marginTop:6}}>
                 <button onClick={()=>setShowReminder(r=>!r)} style={{
                   background:showReminder?"#FEF9C3":"#F8FAFC",
-                  border:`1px solid ${showReminder?"#FDE047":"#E2E8F0"}`,
+                  border:"1px solid "+showReminder?"#FDE047":"#E2E8F0",
                   borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:600,
                   color:showReminder?"#92400E":"#64748B",cursor:"pointer",
                   display:"flex",alignItems:"center",gap:5}}>
@@ -2408,10 +2533,10 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                       if (!reminderDate) return;
                       const user = reminderUser || author || "Toni";
                       const today = new Date();
-                      const date = `${today.getDate().toString().padStart(2,"0")}/${(today.getMonth()+1).toString().padStart(2,"0")}/${today.getFullYear()}`;
+                      const date = today.getDate().toString().padStart(2,"0")+"/"+(today.getMonth()+1).toString().padStart(2,"0")+"/"+today.getFullYear();
                       const reminder = { date: reminderDate, time: reminderTime||"09:00", user, note: reminderNote||"", done: false };
                       onAddUpdate(entity.id,{id:"u"+Date.now(),date,author:user,
-                        text:`🔔 ${reminderNote||"Recordatorio"} · ${reminderDate.split("-").reverse().join("/")}${reminderTime?" a las "+reminderTime:""}`,
+                        text:"🔔 "+reminderNote||"Recordatorio"+" · "+reminderDate.split("-").reverse().join("/")+reminderTime?" a las "+reminderTime:"",
                         reminder});
                       setShowReminder(false); setReminderDate(""); setReminderTime(""); setReminderUser(""); setReminderNote("");
                     }} disabled={!reminderDate}
@@ -2504,14 +2629,14 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                         <p style={{margin:0,fontSize:13,color:"#374151",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{u.text}</p>
                         {u.reminder && (
                           <div style={{marginTop:8,background:u.reminder.done?"#F0FDF4":"#FFFBEB",
-                            border:`1px solid ${u.reminder.done?"#BBF7D0":"#FDE68A"}`,
+                            border:"1px solid "+u.reminder.done?"#BBF7D0":"#FDE68A",
                             borderRadius:7,padding:"7px 10px",display:"flex",
                             alignItems:"center",gap:7}}>
                             <span style={{fontSize:13}}>{u.reminder.done?"✅":"🔔"}</span>
                             <div style={{flex:1,fontSize:11,color:u.reminder.done?"#166534":"#92400E",lineHeight:1.4}}>
                               <strong>{u.reminder.user}</strong>
                               {" · "}{u.reminder.date.split("-").reverse().join("/")}
-                              {u.reminder.time && ` a las ${u.reminder.time}`}
+                              {u.reminder.time && " a las "+u.reminder.time}
                               {u.reminder.note && <div style={{marginTop:2,fontStyle:"italic",opacity:0.85}}>{u.reminder.note}</div>}
                             </div>
                             {!u.reminder.done && (
@@ -2549,33 +2674,41 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
 // ── Entity row (sidebar compact) ───────────────────────────────────────────
 function EntityRow({ e, selected, onClick, onHover, isMobile }) {
   const [hov, setHov] = useState(false);
+  const isActive = e.type === "active";
   return (
     <div onClick={onClick}
       onMouseEnter={()=>{ setHov(true); onHover&&onHover(e); }}
       onMouseLeave={()=>{ setHov(false); onHover&&onHover(null); }}
+      className={"sidebar-row"+selected?" selected":""}
       style={{
-        padding: isMobile?"14px 16px":"10px 14px",
-        borderBottom:`1px solid ${DS.surface}`,
+        padding: isMobile?"14px 18px":"10px 16px",
+        borderBottom:"1px solid "+DS.borderLight,
         cursor:"pointer",
-        background: selected ? DS.primaryLight : hov ? "#FAFBFF" : DS.white,
-        borderLeft:`3px solid ${selected?DS.primaryMid:"transparent"}`,
-        transition:"background 0.12s, border-color 0.12s",
+        background: selected ? DS.primaryLight : "white",
+        borderLeft:"3px solid "+selected?DS.accent:"transparent",
       }}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:isMobile?14:12,fontWeight:600,color:DS.ink,
-            whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.3}}>
+          <div style={{
+            fontSize: isMobile?14:12, fontWeight:600,
+            color: selected ? DS.accent : DS.title,
+            whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",
+            lineHeight:1.4, letterSpacing:"-0.01em"}}>
             {e.name}
           </div>
-          <div style={{fontSize:isMobile?12:10,color:DS.placeholder,marginTop:2,lineHeight:1}}>
-            {[e.city, e.type==="active"&&e.arr?`€${Math.round(e.arr/1000)}k`:null]
-              .filter(Boolean).join(" · ")}
+          <div style={{fontSize:10,color:DS.subtle,marginTop:2,
+            display:"flex",alignItems:"center",gap:4}}>
+            {e.city && <span>{e.city}</span>}
+            {isActive&&e.arr ? <>
+              <span style={{opacity:0.4}}>·</span>
+              <span style={{color:DS.success,fontWeight:600}}>€{Math.round(e.arr/1000)}k</span>
+            </> : null}
           </div>
         </div>
         <span style={{
-          fontSize:isMobile?10:9,fontWeight:700,padding:"2px 7px",borderRadius:20,
-          flexShrink:0,marginTop:1,
-          background:levelBg(e),color:levelText(e),letterSpacing:"0.01em"}}>
+          fontSize:9, fontWeight:700, padding:"2px 8px", borderRadius:99,
+          flexShrink:0, letterSpacing:"0.02em",
+          background:levelBg(e), color:levelText(e)}}>
           {levelLabel(e)}
         </span>
       </div>
@@ -2603,7 +2736,7 @@ function LoginScreen({ onLogin }) {
 
   return (
     <div style={{minHeight:"100vh",
-      background:`linear-gradient(150deg, ${DS.primary} 0%, #0D47A1 50%, #1565C0 100%)`,
+      background:"linear-gradient(150deg, "+DS.primary+" 0%, #0D47A1 50%, #1565C0 100%)",
       display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
 
       {/* Subtle grid overlay */}
@@ -2876,7 +3009,7 @@ function CsvImportModal({ content, partners, savedAliases, onClose, onConfirm })
                   <div key={i} onClick={()=>toggleRow(m.csvName)}
                     style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
                       background:isExcluded?"#F8FAFC":m.isManual?"#F5F3FF":"#F0FDF4",
-                      border:`1px solid ${isExcluded?"#E2E8F0":m.isManual?"#DDD6FE":"#BBF7D0"}`,
+                      border:"1px solid "+isExcluded?"#E2E8F0":m.isManual?"#DDD6FE":"#BBF7D0",
                       borderRadius:8,marginBottom:6,cursor:"pointer",
                       opacity:isExcluded?0.5:1,transition:"all 0.15s"}}>
                     <span style={{fontSize:14,flexShrink:0}}>{isExcluded?"⬜":m.isManual?"🔗":"✅"}</span>
@@ -2888,7 +3021,7 @@ function CsvImportModal({ content, partners, savedAliases, onClose, onConfirm })
                       <div style={{fontSize:10,color:"#64748B"}}>
                         CSV: "{m.csvName}" ·{" "}
                         <span style={{color:conf.color,fontWeight:700}}>{conf.text}
-                          {!m.isManual && ` (${Math.round(m.score*100)}%)`}
+                          {!m.isManual && " ("+Math.round(m.score*100)+"%)"}
                         </span>
                       </div>
                     </div>
@@ -3054,7 +3187,7 @@ function AppInner({ session, onLogout }) {
         since:new Date().toISOString().split("T")[0],
         updates:[...(prospect.updates||[]),{id:"u"+Date.now(),
           date:new Date().toISOString().split("T")[0],author:"Sistema",
-          text:`Convertido a distribuidor ${level==="premium"?"Premium Partner":"Specialist"}.`}]};
+          text:"Convertido a distribuidor "+level==="premium"?"Premium Partner":"Specialist"+"."}]};
       const next={...d,partners:[...d.partners,promoted],prospects:d.prospects.filter(p=>p.id!==prospectId)};
       setSelected(promoted);
       return next;
@@ -3224,43 +3357,47 @@ function AppInner({ session, onLogout }) {
   // ── DESKTOP LAYOUT ─────────────────────────────────────────────────────
   return (
     <div style={{height:"100vh",display:"flex",flexDirection:"column",
-      fontFamily:"-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif",
+      fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter','Segoe UI',sans-serif",
       background:DS.bg}}>
 
       {/* ── Topbar ── */}
-      <div style={{background:DS.primary,height:52,display:"flex",alignItems:"center",
-        padding:"0 20px",flexShrink:0,gap:0,
-        boxShadow:"0 1px 0 rgba(255,255,255,0.07),0 2px 12px rgba(0,0,0,0.25)"}}>
+      <div style={{
+        background:DS.primary, height:56,
+        display:"flex", alignItems:"center",
+        padding:"0 24px", flexShrink:0, gap:0,
+        boxShadow:"0 1px 0 rgba(255,255,255,0.06), "+DS.shadowMd}}>
 
         {/* Brand */}
-        <div style={{display:"flex",alignItems:"center",gap:9,paddingRight:16,
-          borderRight:"1px solid rgba(255,255,255,0.1)"}}>
-          <div style={{width:28,height:28,background:"rgba(255,255,255,0.12)",borderRadius:7,
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,
-            border:"1px solid rgba(255,255,255,0.15)"}}>🗺</div>
+        <div style={{display:"flex",alignItems:"center",gap:10,paddingRight:20,
+          borderRight:"1px solid rgba(255,255,255,0.08)"}}>
+          <div style={{width:30,height:30,borderRadius:9,
+            background:"linear-gradient(135deg,#3B82F6,#1D4ED8)",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:15,boxShadow:"0 2px 8px rgba(29,78,216,0.4)"}}>🗺</div>
           <div>
-            <div style={{color:"white",fontWeight:800,fontSize:13,lineHeight:1.2,letterSpacing:"-0.01em"}}>
-              PD Dashboard
-            </div>
-            <div style={{color:"rgba(255,255,255,0.3)",fontSize:9,fontWeight:600,
-              letterSpacing:"0.05em",textTransform:"uppercase"}}>Cegid Revo</div>
+            <div style={{color:"white",fontWeight:700,fontSize:13,lineHeight:1.2,
+              letterSpacing:"-0.02em"}}>PD Dashboard</div>
+            <div style={{color:"rgba(255,255,255,0.28)",fontSize:9,fontWeight:500,
+              letterSpacing:"0.06em",textTransform:"uppercase"}}>Cegid Revo</div>
           </div>
         </div>
 
-        {/* Navigation */}
-        <div style={{display:"flex",alignItems:"center",gap:2,padding:"0 12px",
-          borderRight:"1px solid rgba(255,255,255,0.1)"}}>
+        {/* Nav */}
+        <div style={{display:"flex",alignItems:"center",gap:1,padding:"0 14px",
+          borderRight:"1px solid rgba(255,255,255,0.08)"}}>
           {[
-            {label:"📊 Dashboard", active:view==="dashboard", onClick:()=>setView(v=>v==="dashboard"?"partners":"dashboard")},
-            {label:"🗺 Mapa",      active:view==="partners"&&showMap, onClick:()=>{ setView("partners"); setShowMap(m=>!m); }, hide:view==="dashboard"},
+            {label:"Dashboard", active:view==="dashboard",
+              onClick:()=>setView(v=>v==="dashboard"?"partners":"dashboard")},
+            {label:"Mapa", active:view==="partners"&&showMap,
+              onClick:()=>{ setView("partners"); setShowMap(m=>!m); },
+              hide:view==="dashboard"},
           ].filter(b=>!b.hide).map(btn=>(
             <button key={btn.label} onClick={btn.onClick} style={{
-              background:btn.active?"rgba(255,255,255,0.14)":"transparent",
-              color:btn.active?"white":"rgba(255,255,255,0.55)",
-              border:"none",borderRadius:6,padding:"5px 11px",
-              fontSize:11,fontWeight:btn.active?700:500,cursor:"pointer",
-              transition:"all 0.15s",letterSpacing:"0.01em",
-              display:"flex",alignItems:"center",gap:5}}>
+              background:btn.active?"rgba(255,255,255,0.1)":"transparent",
+              color:btn.active?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.4)",
+              border:"none",borderRadius:7,padding:"5px 12px",
+              fontSize:11,fontWeight:btn.active?600:400,cursor:"pointer",
+              transition:"all 0.15s",letterSpacing:"-0.01em"}}>
               {btn.label}
             </button>
           ))}
@@ -3268,31 +3405,35 @@ function AppInner({ session, onLogout }) {
 
         <div style={{flex:1}}/>
 
-        {/* Sync indicator */}
+        {/* Sync */}
         {syncState!=="idle" && (
-          <div style={{display:"flex",alignItems:"center",gap:4,fontSize:10,fontWeight:600,marginRight:12,
-            color:syncState==="error"?"#FCA5A5":syncState==="saved"?"#6EE7B7":"rgba(255,255,255,0.35)"}}>
-            {syncState==="saving"&&<span style={{animation:"spin 1s linear infinite",display:"inline-block",fontSize:12}}>⟳</span>}
-            {syncState==="saved"&&"✓ Guardado"}
-            {syncState==="error"&&"✗ Error"}
+          <div style={{fontSize:10,fontWeight:500,marginRight:14,
+            color:syncState==="error"?"#FCA5A5":syncState==="saved"?"#6EE7B7":"rgba(255,255,255,0.3)"}}>
+            {syncState==="saving"&&"syncing…"}
+            {syncState==="saved"&&"✓ guardado"}
+            {syncState==="error"&&"✗ error"}
           </div>
         )}
 
-        {/* Actions group */}
-        <div style={{display:"flex",alignItems:"center",gap:6,paddingRight:12,
-          borderRight:"1px solid rgba(255,255,255,0.1)"}}>
+        {/* Actions */}
+        <div style={{display:"flex",alignItems:"center",gap:6,
+          paddingRight:20,borderRight:"1px solid rgba(255,255,255,0.08)"}}>
 
           {/* Bell */}
           <button onClick={()=>setShowRemindersPanel(r=>!r)} style={{
-            position:"relative",
-            background:showRemindersPanel?"rgba(255,255,255,0.14)":"transparent",
-            border:"none",borderRadius:6,width:32,height:32,cursor:"pointer",
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>
+            position:"relative",background:"transparent",border:"none",
+            borderRadius:8,width:34,height:34,cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:16,transition:"background 0.15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
             🔔
             {pendingReminders.length>0 && (
-              <span style={{position:"absolute",top:3,right:3,background:DS.danger,color:"white",
-                borderRadius:"50%",fontSize:8,fontWeight:800,width:12,height:12,
-                display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <span style={{position:"absolute",top:5,right:5,
+                background:"#EF4444",color:"white",borderRadius:"50%",
+                fontSize:8,fontWeight:700,width:13,height:13,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                border:"1.5px solid "+DS.primary}}>
                 {pendingReminders.length}
               </span>
             )}
@@ -3301,43 +3442,58 @@ function AppInner({ session, onLogout }) {
           {/* Add dropdown */}
           <div ref={addMenuRef} style={{position:"relative"}}>
             <button onClick={()=>setAddMenuOpen(o=>!o)} style={{
-              background:"rgba(255,255,255,0.95)",color:DS.primary,border:"none",
-              borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer",
-              display:"flex",alignItems:"center",gap:5,transition:"background 0.15s"}}>
+              background:"rgba(255,255,255,0.1)",color:"white",
+              border:"1px solid rgba(255,255,255,0.14)",
+              borderRadius:9,padding:"6px 14px",fontSize:12,fontWeight:500,
+              cursor:"pointer",display:"flex",alignItems:"center",gap:6,
+              transition:"all 0.15s",letterSpacing:"-0.01em"}}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.16)"}
+              onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"}>
               + Añadir
-              <span style={{fontSize:8,opacity:0.6}}>{addMenuOpen?"▲":"▼"}</span>
+              <span style={{fontSize:8,opacity:0.4}}>{addMenuOpen?"▲":"▼"}</span>
             </button>
             {addMenuOpen && (
-              <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,
-                background:DS.white,borderRadius:10,
-                boxShadow:DS.shadowLg,border:`1px solid ${DS.border}`,
-                minWidth:160,zIndex:200,overflow:"hidden",animation:"fadeIn 0.12s ease"}}>
+              <div style={{
+                position:"absolute",top:"calc(100% + 8px)",right:0,
+                background:"rgba(255,255,255,0.96)",
+                backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",
+                borderRadius:13,boxShadow:"0 20px 60px rgba(0,0,0,0.15),0 4px 12px rgba(0,0,0,0.08)",
+                border:"1px solid rgba(0,0,0,0.06)",
+                minWidth:186,zIndex:200,overflow:"hidden",
+                animation:"fadeIn 0.12s ease"}}>
                 {[
-                  {label:"🏢 Distribuidor", onClick:()=>{setModal("active");setAddMenuOpen(false);}},
-                  {label:"👤 Prospecto",    onClick:()=>{setModal("prospect");setAddMenuOpen(false);}},
-                ].map(item=>(
+                  {label:"Distribuidor",icon:"🏢",sub:"Partner activo",onClick:()=>{setModal("active");setAddMenuOpen(false);}},
+                  {label:"Prospecto",   icon:"👤",sub:"En pipeline",   onClick:()=>{setModal("prospect");setAddMenuOpen(false);}},
+                ].map((item,i)=>(
                   <button key={item.label} onClick={item.onClick} style={{
-                    width:"100%",background:"none",border:"none",padding:"11px 16px",
-                    fontSize:12,fontWeight:600,color:DS.ink,cursor:"pointer",textAlign:"left",
-                    display:"flex",alignItems:"center",gap:8,transition:"background 0.1s"}}
-                    onMouseEnter={e=>e.currentTarget.style.background=DS.surface}
+                    width:"100%",background:"none",border:"none",
+                    padding:"11px 14px",cursor:"pointer",textAlign:"left",
+                    display:"flex",alignItems:"center",gap:10,
+                    borderBottom:i===0?"1px solid rgba(0,0,0,0.05)":"none",
+                    transition:"background 0.1s"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="rgba(0,0,0,0.03)"}
                     onMouseLeave={e=>e.currentTarget.style.background="none"}>
-                    {item.label}
+                    <span style={{fontSize:20}}>{item.icon}</span>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:"#09090B"}}>{item.label}</div>
+                      <div style={{fontSize:11,color:"#A1A1AA",marginTop:1}}>{item.sub}</div>
+                    </div>
                   </button>
                 ))}
               </div>
             )}
           </div>
 
-          {/* CSV upload */}
+          {/* CSV */}
           <label style={{
-            background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.75)",
-            border:"1px solid rgba(255,255,255,0.15)",
-            borderRadius:7,padding:"5px 11px",fontSize:11,fontWeight:600,cursor:"pointer",
-            display:"flex",alignItems:"center",gap:5,transition:"background 0.15s"}}
-            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.12)"}
-            onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.08)"}>
-            📥 Subir .csv
+            background:"transparent",color:"rgba(255,255,255,0.38)",
+            border:"1px solid rgba(255,255,255,0.1)",
+            borderRadius:9,padding:"6px 12px",fontSize:11,cursor:"pointer",
+            display:"flex",alignItems:"center",gap:4,
+            transition:"all 0.15s",letterSpacing:"-0.01em"}}
+            onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,0.07)";e.currentTarget.style.color="rgba(255,255,255,0.65)"}}
+            onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="rgba(255,255,255,0.38)"}}>
+            ↑ Subir .csv
             <input type="file" accept=".csv" style={{display:"none"}}
               onChange={e=>{
                 const file=e.target.files[0]; if(!file) return;
@@ -3350,36 +3506,40 @@ function AppInner({ session, onLogout }) {
         </div>
 
         {/* User */}
-        <div style={{display:"flex",alignItems:"center",gap:8,paddingLeft:12}}>
-          <div style={{width:28,height:28,
-            background:`linear-gradient(135deg,rgba(255,255,255,0.3),rgba(255,255,255,0.1))`,
+        <div style={{display:"flex",alignItems:"center",gap:9,paddingLeft:20}}>
+          <div style={{width:30,height:30,
+            background:"linear-gradient(135deg,rgba(99,102,241,0.6),rgba(139,92,246,0.4))",
             borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:11,fontWeight:800,color:"white",border:"1px solid rgba(255,255,255,0.2)",
-            flexShrink:0}}>
+            fontSize:12,fontWeight:700,color:"white",
+            border:"1px solid rgba(255,255,255,0.18)",
+            boxShadow:"0 2px 6px rgba(0,0,0,0.25)",flexShrink:0}}>
             {(session.display_name||session.username||"?")[0].toUpperCase()}
           </div>
-          <span style={{fontSize:11,fontWeight:500,color:"rgba(255,255,255,0.55)",
-            maxWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          <span style={{fontSize:11,color:"rgba(255,255,255,0.38)",
+            maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
             {session.display_name||session.username}
           </span>
           <button onClick={onLogout} style={{
-            background:"transparent",color:"rgba(255,255,255,0.35)",
-            border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,
-            padding:"3px 8px",fontSize:10,cursor:"pointer",
-            transition:"all 0.15s"}}
-            onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,0.08)";e.currentTarget.style.color="rgba(255,255,255,0.6)"}}
-            onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="rgba(255,255,255,0.35)"}}>
+            background:"transparent",color:"rgba(255,255,255,0.25)",
+            border:"none",padding:"4px 2px",fontSize:11,cursor:"pointer",
+            transition:"color 0.15s"}}
+            onMouseEnter={e=>e.currentTarget.style.color="rgba(255,255,255,0.6)"}
+            onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.25)"}>
             Salir
           </button>
         </div>
-      </div>
+      </div>      </div>
 
       {/* Reminders panel */}
       {showRemindersPanel && (
-        <div style={{position:"fixed",top:50,right:20,zIndex:200,
-          background:"white",border:"1px solid #E2E8F0",borderRadius:12,
-          boxShadow:"0 8px 32px rgba(0,0,0,0.14)",width:360,maxHeight:"70vh",
-          display:"flex",flexDirection:"column",fontFamily:"system-ui,sans-serif"}}>
+        <div style={{position:"fixed",top:64,right:20,zIndex:200,
+          background:"rgba(255,255,255,0.96)",
+          backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",
+          borderRadius:16,
+          boxShadow:"0 24px 64px rgba(0,0,0,0.12),0 4px 16px rgba(0,0,0,0.06)",
+          border:"1px solid rgba(0,0,0,0.06)",
+          width:380,maxHeight:"72vh",
+          display:"flex",flexDirection:"column",animation:"fadeIn 0.15s ease"}}>
           <div style={{padding:"14px 16px",borderBottom:"1px solid #E2E8F0",
             display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{fontSize:13,fontWeight:800,color:"#1E293B",display:"flex",alignItems:"center",gap:6}}>
@@ -3409,7 +3569,7 @@ function AppInner({ session, onLogout }) {
                         display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
                         <span>{isOverdue?"⚠️":"🔔"}</span>
                         <span>{r.date.split("-").reverse().join("/")}
-                          {r.time && ` · ${r.time}`}
+                          {r.time && " · "+r.time}
                           {" · "}<span style={{color:"#4F46E5"}}>{r.user}</span>
                         </span>
                       </div>
@@ -3453,25 +3613,31 @@ function AppInner({ session, onLogout }) {
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
         {/* Sidebar + Detail panel column */}
         <div style={{
-          width: showMap ? (selected ? 460 : 280) : "100%",
+          width: showMap ? (selected ? 480 : 290) : "100%",
           display:"flex",flexDirection:"column",flexShrink:0,
-          borderRight: showMap ? `1px solid ${DS.border}` : "none",
-          transition:"width 0.25s ease",overflow:"hidden",
-          background:DS.white,boxShadow:showMap?"2px 0 8px rgba(15,45,107,0.04)":"none"}}>
+          borderRight: showMap ? "1px solid "+DS.borderLight : "none",
+          transition:"width 0.25s cubic-bezier(0.4,0,0.2,1)",overflow:"hidden",
+          background:DS.white,
+          boxShadow:showMap?"1px 0 0 rgba(0,0,0,0.04),4px 0 12px rgba(0,0,0,0.02)":"none"}}>
 
           {/* List sidebar — hidden when detail panel open and map is visible */}
           {(!selected || !showMap) && (
           <div style={{display:"flex",flexDirection:"column",height:"100%",background:"white"}}>
-          <div style={{padding:"12px 14px",borderBottom:`1px solid ${DS.border}`,
+          <div style={{padding:"12px 14px",borderBottom:"1px solid "+DS.borderLight,
             background:DS.white,flexShrink:0}}>
-            <input value={search} onChange={e=>setSearch(e.target.value)}
-              placeholder="Buscar…"
-              className="ds-input"
-              style={{width:"100%",border:`1px solid ${DS.border}`,
-                borderRadius:8,padding:"7px 11px",fontSize:12,
-                color:DS.ink,outline:"none",
-                transition:"border-color 0.15s"}}/>
-            <div style={{display:"flex",gap:6,marginTop:8}}>
+            <div style={{position:"relative",marginBottom:8}}>
+              <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",
+                fontSize:12,color:DS.subtle,pointerEvents:"none"}}>⌕</span>
+              <input value={search} onChange={e=>setSearch(e.target.value)}
+                placeholder="Buscar…"
+                style={{width:"100%",border:"1.5px solid "+DS.border,
+                  borderRadius:10,padding:"8px 11px 8px 28px",fontSize:12,
+                  color:DS.title,outline:"none",background:DS.surface,
+                  transition:"border-color 0.15s,box-shadow 0.15s"}}
+                onFocus={e=>{e.target.style.borderColor=DS.accent;e.target.style.boxShadow="0 0 0 3px rgba(37,99,235,0.1)";e.target.style.background="white"}}
+                onBlur={e=>{e.target.style.borderColor=DS.border;e.target.style.boxShadow="none";e.target.style.background=DS.surface}}/>
+            </div>
+            <div style={{display:"flex",gap:6}}>
               {[
                 {state:filter, set:setFilter, opts:[
                   {v:"all",l:"Todos"},{v:"active",l:"Activos"},{v:"premium",l:"Premium"},
@@ -3482,9 +3648,10 @@ function AppInner({ session, onLogout }) {
                 ]},
               ].map((sel,i)=>(
                 <select key={i} value={sel.state} onChange={e=>sel.set(e.target.value)}
-                  style={{flex:1,border:`1px solid ${DS.border}`,borderRadius:7,
-                    padding:"5px 7px",fontSize:11,color:DS.body,background:DS.white,
-                    cursor:"pointer",outline:"none",fontFamily:"inherit"}}>
+                  style={{flex:1,border:"1.5px solid "+DS.border,borderRadius:9,
+                    padding:"6px 8px",fontSize:11,color:DS.body,
+                    background:DS.surface,cursor:"pointer",outline:"none",
+                    fontFamily:"inherit"}}>
                   {sel.opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
                 </select>
               ))}
@@ -3497,7 +3664,7 @@ function AppInner({ session, onLogout }) {
                 {filtered.map(e=>(
                   <div key={e.id} onClick={()=>setSelected(e)} style={{
                     background:selected?.id===e.id?"#EEF2FF":"white",
-                    border:`1px solid ${selected?.id===e.id?"#818CF8":"#E2E8F0"}`,
+                    border:"1px solid "+selected?.id===e.id?"#818CF8":"#E2E8F0",
                     borderRadius:10,padding:14,cursor:"pointer",
                     boxShadow:selected?.id===e.id?"0 0 0 2px #818CF8":"none"}}>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
@@ -3510,7 +3677,7 @@ function AppInner({ session, onLogout }) {
                     <div style={{fontSize:12,fontWeight:700,color:"#1E293B",marginBottom:3}}>{e.name}</div>
                     <div style={{fontSize:11,color:"#64748B",marginBottom:8}}>
                       {(e.contacts||[])[0]?.name||"—"}
-                      {(e.contacts||[])[0]?.role?` · ${e.contacts[0].role}`:""}
+                      {(e.contacts||[])[0]?.role?" · "+e.contacts[0].role:""}
                     </div>
                     {e.type==="active" && (
                       <div style={{display:"flex",gap:10,paddingTop:8,borderTop:"1px solid #F1F5F9"}}>
@@ -3590,73 +3757,80 @@ function DashboardView({ data }) {
   const premCount    = data.partners.filter(p=>p.level==="premium").length;
   const spCount      = data.partners.filter(p=>p.level==="specialist").length;
   const prCount      = data.prospects.length;
-  const pendingReminders = [...data.partners,...data.prospects]
+  const pendingR     = [...data.partners,...data.prospects]
     .flatMap(e=>(e.updates||[]).filter(u=>u.reminder&&!u.reminder.done)).length;
 
   const kpis = [
-    { label:"ARR Total",      value:`€${(totalArr/1000).toFixed(0)}k`,    sub:"Ingreso neto Revo",              color:DS.primaryMid, bg:DS.primaryLight },
-    { label:"Cuentas activas",value:totalAccounts,                         sub:"Clientes en canal",              color:DS.specialist, bg:"#ECFEFF" },
-    { label:"Booking 2026",   value:`€${(totalBooking/1000).toFixed(0)}k`, sub:"Contratado este año",            color:DS.success,    bg:"#F0FDF4" },
-    { label:"Partners",       value:data.partners.length,                  sub:`${premCount} Premium · ${spCount} Specialist`, color:"#7C3AED", bg:"#F5F3FF" },
-    { label:"Prospectos",     value:prCount,                               sub:"En pipeline",                   color:DS.warning,    bg:"#FFFBEB" },
-    { label:"Recordatorios",  value:pendingReminders,                      sub:"Pendientes",                    color:DS.danger,     bg:"#FEF2F2" },
+    { label:"ARR Total",      value:"€"+(totalArr/1000).toFixed(0)+"k",    sub:"Ingreso neto",      icon:"💰", grad:"linear-gradient(135deg,#1D4ED8,#3B82F6)" },
+    { label:"Cuentas",        value:totalAccounts,                         sub:"Clientes en canal", icon:"🏪", grad:"linear-gradient(135deg,#0369A1,#0EA5E9)" },
+    { label:"Booking 2026",   value:"€"+(totalBooking/1000).toFixed(0)+"k", sub:"Contratado",        icon:"📈", grad:"linear-gradient(135deg,#059669,#34D399)" },
+    { label:"Partners",       value:data.partners.length,                  sub:premCount+"P · "+spCount+"S",icon:"🤝", grad:"linear-gradient(135deg,#7C3AED,#A78BFA)" },
+    { label:"Prospectos",     value:prCount,                               sub:"En pipeline",       icon:"👤", grad:"linear-gradient(135deg,#D97706,#FCD34D)" },
+    { label:"Recordatorios",  value:pendingR,                              sub:"Pendientes",        icon:"🔔", grad:"linear-gradient(135deg,#DC2626,#F87171)" },
   ];
 
-  const PlaceholderCard = ({title, desc, height=200}) => (
-    <div style={{background:DS.white,borderRadius:12,padding:"18px 20px",
-      boxShadow:DS.shadowSm,border:`1px solid ${DS.border}`,minHeight:height,
-      display:"flex",flexDirection:"column"}}>
-      <div style={{fontSize:13,fontWeight:700,color:DS.ink,marginBottom:3}}>{title}</div>
-      <div style={{fontSize:11,color:DS.placeholder,marginBottom:14}}>{desc}</div>
+  const PlaceholderCard = ({title, desc, height=200, span=1}) => (
+    <div style={{background:DS.white,borderRadius:16,padding:"20px",
+      boxShadow:DS.shadowSm,border:"1px solid "+DS.borderLight,
+      minHeight:height,display:"flex",flexDirection:"column",gridColumn:"span "+span}}>
+      <div style={{fontSize:13,fontWeight:600,color:DS.title,marginBottom:3,letterSpacing:"-0.01em"}}>{title}</div>
+      <div style={{fontSize:11,color:DS.subtle,marginBottom:14}}>{desc}</div>
       <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",
-        background:DS.surface,borderRadius:8,border:`1.5px dashed ${DS.borderMid}`}}>
-        <div style={{textAlign:"center",color:DS.borderMid}}>
-          <div style={{fontSize:24,marginBottom:6}}>📊</div>
-          <div style={{fontSize:11,fontWeight:600,letterSpacing:"0.02em"}}>Próximamente</div>
+        background:DS.surface,borderRadius:10,border:"1.5px dashed "+DS.border}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:28,marginBottom:8,filter:"grayscale(0.3)"}}>📊</div>
+          <div style={{fontSize:11,fontWeight:600,color:DS.subtle,letterSpacing:"0.03em",
+            textTransform:"uppercase"}}>Próximamente</div>
         </div>
       </div>
     </div>
   );
 
   return (
-    <div style={{flex:1,overflowY:"auto",padding:"24px 28px",background:DS.bg}}>
-      <div style={{maxWidth:1100,margin:"0 auto",animation:"fadeIn 0.2s ease"}}>
+    <div style={{flex:1,overflowY:"auto",background:DS.bg,
+      backgroundImage:"radial-gradient(ellipse at 20% 0%, rgba(29,78,216,0.04) 0%, transparent 60%)"}}>
+      <div style={{maxWidth:1120,margin:"0 auto",padding:"28px 28px",animation:"fadeIn 0.2s ease"}}>
 
-        <div style={{marginBottom:24}}>
-          <div style={{fontSize:18,fontWeight:800,color:DS.ink,letterSpacing:"-0.02em"}}>
-            Dashboard
+        <div style={{marginBottom:28}}>
+          <div style={{fontSize:22,fontWeight:700,color:DS.title,letterSpacing:"-0.03em"}}>
+            Canal Overview
           </div>
-          <div style={{fontSize:12,color:DS.muted,marginTop:3}}>
-            Visión general del canal de distribución
+          <div style={{fontSize:12,color:DS.subtle,marginTop:4,letterSpacing:"-0.01em"}}>
+            Cegid Revo · Distribución España
           </div>
         </div>
 
         {/* KPI cards */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",
-          gap:12,marginBottom:24}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:12,marginBottom:20}}>
           {kpis.map(k=>(
-            <div key={k.label} style={{background:DS.white,borderRadius:12,padding:"16px 18px",
-              boxShadow:DS.shadowSm,border:`1px solid ${DS.border}`,
-              borderTop:`3px solid ${k.color}`}}>
-              <div style={{fontSize:10,fontWeight:700,color:DS.muted,textTransform:"uppercase",
-                letterSpacing:"0.07em",marginBottom:10}}>{k.label}</div>
-              <div style={{fontSize:26,fontWeight:800,color:k.color,
-                letterSpacing:"-0.02em",lineHeight:1,marginBottom:5}}>{k.value}</div>
-              <div style={{fontSize:11,color:DS.placeholder}}>{k.sub}</div>
+            <div key={k.label} style={{
+              borderRadius:16,padding:"18px 16px",
+              background:DS.white,
+              boxShadow:"0 1px 3px rgba(0,0,0,0.04),0 1px 2px rgba(0,0,0,0.03)",
+              border:"1px solid "+DS.borderLight,
+              position:"relative",overflow:"hidden"}}>
+              {/* Gradient accent blob */}
+              <div style={{position:"absolute",top:-20,right:-20,width:80,height:80,
+                background:k.grad,borderRadius:"50%",opacity:0.08,filter:"blur(16px)"}}/>
+              <div style={{fontSize:20,marginBottom:10}}>{k.icon}</div>
+              <div style={{fontSize:24,fontWeight:700,color:DS.title,
+                letterSpacing:"-0.03em",lineHeight:1,marginBottom:4}}>{k.value}</div>
+              <div style={{fontSize:10,fontWeight:600,color:DS.subtle,
+                textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>{k.label}</div>
+              <div style={{fontSize:10,color:DS.subtle,opacity:0.7}}>{k.sub}</div>
             </div>
           ))}
         </div>
 
-        {/* Charts row 1 */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-          <PlaceholderCard title="ARR por partner" desc="Ranking de distribuidores por ingreso neto" height={220}/>
-          <PlaceholderCard title="Evolución NB 2025–2026" desc="Nuevas altas por trimestre" height={220}/>
+        {/* Charts */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:12}}>
+          <PlaceholderCard title="ARR por partner" desc="Ranking por ingreso neto" height={220} span={2}/>
+          <PlaceholderCard title="Distribución" desc="Premium vs Specialist" height={220}/>
         </div>
-        {/* Charts row 2 */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
-          <PlaceholderCard title="Distribución por nivel" desc="Premium vs Specialist" height={180}/>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+          <PlaceholderCard title="Evolución NB" desc="Nuevas altas por trimestre" height={180}/>
           <PlaceholderCard title="Cobertura territorial" desc="Provincias con presencia" height={180}/>
-          <PlaceholderCard title="Pipeline de prospectos" desc="Estado del proceso de captación" height={180}/>
+          <PlaceholderCard title="Pipeline" desc="Estado de prospectos" height={180}/>
         </div>
       </div>
     </div>
