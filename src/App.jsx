@@ -2183,12 +2183,14 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                       padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
                 </div>
               </div>
-            ) : (
-              {!editingMeeting && <button onClick={()=>setShowMeetingForm(true)} style={{width:"100%",marginBottom:14,
+            )}
+
+            {!showMeetingForm && !editingMeeting && (
+              <button onClick={()=>setShowMeetingForm(true)} style={{width:"100%",marginBottom:14,
                 background:"#F8FAFC",border:"1px dashed #CBD5E1",borderRadius:10,
                 padding:"12px",fontSize:13,color:"#64748B",cursor:"pointer",fontWeight:600}}>
                 + Nueva reunión
-              </button>}
+              </button>
             )}
 
             {/* Meeting list */}
