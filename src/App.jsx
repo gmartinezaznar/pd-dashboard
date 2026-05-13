@@ -424,7 +424,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
 
     function loadScript(src) {
       return new Promise((resolve, reject) => {
-        if (document.querySelector("script[src=""+src+""]") && window.topojson) { resolve(); return; }
+        if (document.querySelector("script[src=\""+src+"\"]") && window.topojson) { resolve(); return; }
         const s = document.createElement("script");
         s.src = src;
         s.onload = resolve;
@@ -2536,7 +2536,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                       const date = today.getDate().toString().padStart(2,"0")+"/"+(today.getMonth()+1).toString().padStart(2,"0")+"/"+today.getFullYear();
                       const reminder = { date: reminderDate, time: reminderTime||"09:00", user, note: reminderNote||"", done: false };
                       onAddUpdate(entity.id,{id:"u"+Date.now(),date,author:user,
-                        text:"🔔 "+reminderNote||"Recordatorio"+" · "+reminderDate.split("-").reverse().join("/")+reminderTime?" a las "+reminderTime:"",
+                        text:"🔔 "+(reminderNote||"Recordatorio")+" · "+reminderDate.split("-").reverse().join("/")+(reminderTime?" a las "+reminderTime:""),
                         reminder});
                       setShowReminder(false); setReminderDate(""); setReminderTime(""); setReminderUser(""); setReminderNote("");
                     }} disabled={!reminderDate}
@@ -2679,7 +2679,7 @@ function EntityRow({ e, selected, onClick, onHover, isMobile }) {
     <div onClick={onClick}
       onMouseEnter={()=>{ setHov(true); onHover&&onHover(e); }}
       onMouseLeave={()=>{ setHov(false); onHover&&onHover(null); }}
-      className={"sidebar-row"+selected?" selected":""}
+      className={"sidebar-row"+(selected?" selected":"")}
       style={{
         padding: isMobile?"14px 18px":"10px 16px",
         borderBottom:"1px solid "+DS.borderLight,
@@ -3187,7 +3187,7 @@ function AppInner({ session, onLogout }) {
         since:new Date().toISOString().split("T")[0],
         updates:[...(prospect.updates||[]),{id:"u"+Date.now(),
           date:new Date().toISOString().split("T")[0],author:"Sistema",
-          text:"Convertido a distribuidor "+level==="premium"?"Premium Partner":"Specialist"+"."}]};
+          text:"Convertido a distribuidor "+(level==="premium"?"Premium Partner":"Specialist")+"."}]};
       const next={...d,partners:[...d.partners,promoted],prospects:d.prospects.filter(p=>p.id!==prospectId)};
       setSelected(promoted);
       return next;
