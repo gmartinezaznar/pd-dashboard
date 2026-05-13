@@ -2036,7 +2036,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
         {tab==="meetings" && (
           <div>
             {/* New meeting form */}
-            {showMeetingForm ? (
+            {showMeetingForm && (
               <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:10,padding:16,marginBottom:16}}>
                 <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:12}}>
                   {editingMeeting ? "Editar reunión" : "Nueva reunión"}
