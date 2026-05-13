@@ -1376,6 +1376,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
 
   // Meeting state
   const [showMeetingForm, setShowMeetingForm] = useState(false);
+  const [editingMeeting, setEditingMeeting] = useState(null); // meeting id being edited
   const REVO_TEAM = ["Toni","Gerard"];
   const [meetingForm, setMeetingForm] = useState({
     date: new Date().toISOString().split("T")[0],
@@ -1401,14 +1402,35 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   });
   const saveMeeting = () => {
     if (!meetingForm.topics.trim()) return;
-    const meeting = {
-      id: "m"+Date.now(),
-      ...meetingForm,
-      createdAt: new Date().toISOString(),
-    };
-    onUpdate({...entity, meetings:[...(entity.meetings||[]), meeting]});
+    if (editingMeeting) {
+      // Update existing
+      onUpdate({...entity, meetings:(entity.meetings||[]).map(m=>
+        m.id===editingMeeting ? {...m,...meetingForm} : m
+      )});
+      setEditingMeeting(null);
+    } else {
+      // Create new
+      const meeting = { id:"m"+Date.now(), ...meetingForm, createdAt:new Date().toISOString() };
+      onUpdate({...entity, meetings:[...(entity.meetings||[]), meeting]});
+    }
     resetMeetingForm();
     setShowMeetingForm(false);
+  };
+
+  const startEditMeeting = (m) => {
+    setMeetingForm({
+      date: m.date||"",
+      type: m.type||"videollamada",
+      revoAttendees: m.revoAttendees||[],
+      partnerAttendees: m.partnerAttendees||[],
+      otherAttendees: m.otherAttendees||"",
+      topics: m.topics||"",
+      nextSteps: m.nextSteps||"",
+      nextStepsDate: m.nextStepsDate||"",
+      attachment: m.attachment||null,
+    });
+    setEditingMeeting(m.id);
+    setShowMeetingForm(true);
   };
 
   const tabs = isActive
@@ -2016,7 +2038,9 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
             {/* New meeting form */}
             {showMeetingForm ? (
               <div style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:10,padding:16,marginBottom:16}}>
-                <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:12}}>Nueva reunión</div>
+                <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:12}}>
+                  {editingMeeting ? "Editar reunión" : "Nueva reunión"}
+                </div>
                 <div style={{display:"flex",flexDirection:"column",gap:10}}>
                   {/* Date + Type */}
                   <div style={{display:"flex",gap:8}}>
@@ -2154,17 +2178,17 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                       padding:"10px",fontSize:13,fontWeight:700,cursor:meetingForm.topics.trim()?"pointer":"default"}}>
                     Guardar reunión
                   </button>
-                  <button onClick={()=>{setShowMeetingForm(false);resetMeetingForm();}}
+                  <button onClick={()=>{setShowMeetingForm(false);setEditingMeeting(null);resetMeetingForm();}}
                     style={{flex:1,background:"#F1F5F9",color:"#64748B",border:"none",borderRadius:8,
                       padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
                 </div>
               </div>
             ) : (
-              <button onClick={()=>setShowMeetingForm(true)} style={{width:"100%",marginBottom:14,
+              {!editingMeeting && <button onClick={()=>setShowMeetingForm(true)} style={{width:"100%",marginBottom:14,
                 background:"#F8FAFC",border:"1px dashed #CBD5E1",borderRadius:10,
                 padding:"12px",fontSize:13,color:"#64748B",cursor:"pointer",fontWeight:600}}>
                 + Nueva reunión
-              </button>
+              </button>}
             )}
 
             {/* Meeting list */}
@@ -2186,10 +2210,15 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                         <span style={{fontSize:11,color:"#94A3B8",marginLeft:6,textTransform:"capitalize"}}>{m.type}</span>
                       </div>
                     </div>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <button onClick={()=>startEditMeeting(m)}
+                      style={{background:"#EEF2FF",border:"none",borderRadius:6,padding:"4px 8px",
+                        fontSize:11,color:"#4F46E5",cursor:"pointer",fontWeight:600}}>✏️ Editar</button>
                     <button onClick={()=>{
                       if(!window.confirm("¿Eliminar esta reunión?")) return;
-                      onUpdate({...entity,meetings:(entity.meetings||[]).filter((_,j)=>j!==(entity.meetings.length-1-i))});
-                    }} style={{background:"none",border:"none",color:"#CBD5E1",cursor:"pointer",fontSize:14}}>🗑</button>
+                      onUpdate({...entity,meetings:(entity.meetings||[]).filter(x=>x.id!==m.id)});
+                    }} style={{background:"none",border:"none",color:"#CBD5E1",cursor:"pointer",fontSize:14,padding:"4px"}}>🗑</button>
+                  </div>
                   </div>
                   {allAttendees.length>0 && (
                     <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
@@ -2199,11 +2228,12 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                       ))}
                     </div>
                   )}
-                  <p style={{margin:"0 0 6px",fontSize:12,color:"#374151",lineHeight:1.5}}>{m.topics}</p>
+                  <p style={{margin:"0 0 6px",fontSize:12,color:"#374151",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{m.topics}</p>
                   {m.nextSteps && (
                     <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:7,
                       padding:"7px 10px",fontSize:11,color:"#166534",marginTop:6}}>
-                      <strong>Próximos pasos:</strong> {m.nextSteps}
+                      <strong>Próximos pasos:</strong>{" "}
+                      <span style={{whiteSpace:"pre-wrap"}}>{m.nextSteps}</span>
                       {m.nextStepsDate && <span style={{color:"#94A3B8",marginLeft:6}}>
                         · {new Date(m.nextStepsDate).toLocaleDateString("es-ES",{day:"numeric",month:"short"})}
                       </span>}
@@ -2469,7 +2499,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                       </div>
                     ) : (
                       <>
-                        <p style={{margin:0,fontSize:13,color:"#374151",lineHeight:1.6}}>{u.text}</p>
+                        <p style={{margin:0,fontSize:13,color:"#374151",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{u.text}</p>
                         {u.reminder && (
                           <div style={{marginTop:8,background:u.reminder.done?"#F0FDF4":"#FFFBEB",
                             border:`1px solid ${u.reminder.done?"#BBF7D0":"#FDE68A"}`,
