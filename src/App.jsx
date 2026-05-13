@@ -3528,7 +3528,7 @@ function AppInner({ session, onLogout }) {
             Salir
           </button>
         </div>
-      </div>      </div>
+      </div>
 
       {/* Reminders panel */}
       {showRemindersPanel && (
