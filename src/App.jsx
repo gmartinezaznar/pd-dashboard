@@ -598,15 +598,14 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
         onClick={()=>{setTooltip(null);}}>
         <defs>
           {DENSITY.slice(1).map((color,i)=>(
-            <pattern key={i} id={"hatch-"+i+1} patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-              <rect width="6" height="6" fill={color} opacity="0.35"/>
-              <line x1="0" y1="0" x2="0" y2="6" stroke="#94A3B8" strokeWidth="1.5"/>
+            <pattern key={i} id={"hatch-"+(i+1)} patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(40)">
+              <rect width="5" height="5" fill={color} opacity="0.4"/>
+              <line x1="0" y1="0" x2="0" y2="5" stroke="rgba(148,163,184,0.5)" strokeWidth="1"/>
             </pattern>
           ))}
-          {/* Hatch pattern for highlighted secondary provinces */}
-          <pattern id="hatch-highlight" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-            <rect width="6" height="6" fill={HIGHLIGHT_COLOR}/>
-            <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.45)" strokeWidth="1.8"/>
+          <pattern id="hatch-highlight" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(40)">
+            <rect width="5" height="5" fill={HIGHLIGHT_COLOR}/>
+            <line x1="0" y1="0" x2="0" y2="5" stroke="rgba(255,255,255,0.4)" strokeWidth="1.2"/>
           </pattern>
         </defs>
         <rect width={dims.w} height={dims.h} fill="#DBEAFE" rx="8"/>
@@ -1451,6 +1450,8 @@ function ImageLightbox({ src, onClose }) {
 
 // ── Detail Panel — shared desktop/mobile ───────────────────────────────────
 function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDelete, isMobile }) {
+  const entityRef = useRef(entity);
+  useEffect(()=>{ entityRef.current = entity; }, [entity]);
   const isActive = entity.type==="active";
   const hdr = hdrColor(entity);
   const [tab, setTab] = useState("contacts");
@@ -1524,16 +1525,15 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
   });
   const saveMeeting = () => {
     if (!meetingForm.topics.trim()) return;
+    const e = entityRef.current;
     if (editingMeeting) {
-      // Update existing
-      onUpdate({...entity, meetings:(entity.meetings||[]).map(m=>
+      onUpdate({...e, meetings:(e.meetings||[]).map(m=>
         m.id===editingMeeting ? {...m,...meetingForm} : m
       )});
       setEditingMeeting(null);
     } else {
-      // Create new
       const meeting = { id:"m"+Date.now(), ...meetingForm, createdAt:new Date().toISOString() };
-      onUpdate({...entity, meetings:[...(entity.meetings||[]), meeting]});
+      onUpdate({...e, meetings:[...(e.meetings||[]), meeting]});
     }
     resetMeetingForm();
     setShowMeetingForm(false);
@@ -3142,11 +3142,16 @@ function AppInner({ session, onLogout }) {
   },[data]);
 
   const updateEntity = useCallback((updated)=>{
-    setData(d=>({...d,
-      partners:d.partners.map(p=>p.id===updated.id?updated:p),
-      prospects:d.prospects.map(p=>p.id===updated.id?updated:p),
-    }));
-    setSelected(updated);
+    setData(d=>{
+      const next = {...d,
+        partners:d.partners.map(p=>p.id===updated.id?updated:p),
+        prospects:d.prospects.map(p=>p.id===updated.id?updated:p),
+      };
+      // Get the freshest version from data, merged with the update
+      const fresh = [...next.partners,...next.prospects].find(p=>p.id===updated.id);
+      if (fresh) setTimeout(()=>setSelected(fresh),0);
+      return next;
+    });
   },[]);
 
   const addUpdate = useCallback((id,upd)=>{
@@ -3773,35 +3778,38 @@ function AppInner({ session, onLogout }) {
                 gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:10}}>
                 {filtered.map(e=>(
                   <div key={e.id} onClick={()=>setSelected(e)} style={{
-                    background:selected?.id===e.id?"#EEF2FF":"white",
-                    border:"1px solid "+selected?.id===e.id?"#818CF8":"#E2E8F0",
-                    borderRadius:10,padding:14,cursor:"pointer",
-                    boxShadow:selected?.id===e.id?"0 0 0 2px #818CF8":"none"}}>
+                    background:selected?.id===e.id?DS.primaryLight:DS.white,
+                    border:"1.5px solid "+(selected?.id===e.id?DS.accent:DS.border),
+                    borderRadius:12,padding:14,cursor:"pointer",
+                    boxShadow:selected?.id===e.id?DS.shadowMd:DS.shadowSm,
+                    transition:"box-shadow 0.15s,border-color 0.15s"}}
+                    onMouseEnter={e2=>{ if(selected?.id!==e.id) { e2.currentTarget.style.borderColor=DS.accentVivid; e2.currentTarget.style.boxShadow=DS.shadowMd; }}}
+                    onMouseLeave={e2=>{ if(selected?.id!==e.id) { e2.currentTarget.style.borderColor=DS.border; e2.currentTarget.style.boxShadow=DS.shadowSm; }}}>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                      <span style={{fontSize:9,fontWeight:800,padding:"2px 7px",borderRadius:8,
-                        background:levelBg(e),color:levelText(e)}}>
+                      <span style={{fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:99,
+                        background:levelBg(e),color:levelText(e),letterSpacing:"0.02em"}}>
                         {e.type==="prospect"?(e.stage||"Prospecto"):e.level==="premium"?"Premium":"Specialist"}
                       </span>
-                      <span style={{fontSize:10,color:"#94A3B8"}}>{e.city}</span>
+                      <span style={{fontSize:10,color:DS.subtle}}>{e.city}</span>
                     </div>
-                    <div style={{fontSize:12,fontWeight:700,color:"#1E293B",marginBottom:3}}>{e.name}</div>
-                    <div style={{fontSize:11,color:"#64748B",marginBottom:8}}>
+                    <div style={{fontSize:12,fontWeight:600,color:DS.title,marginBottom:3,letterSpacing:"-0.01em"}}>{e.name}</div>
+                    <div style={{fontSize:11,color:DS.muted,marginBottom:8}}>
                       {(e.contacts||[])[0]?.name||"—"}
                       {(e.contacts||[])[0]?.role?" · "+e.contacts[0].role:""}
                     </div>
                     {e.type==="active" && (
-                      <div style={{display:"flex",gap:10,paddingTop:8,borderTop:"1px solid #F1F5F9"}}>
+                      <div style={{display:"flex",gap:10,paddingTop:8,borderTop:"1px solid "+DS.borderLight}}>
                         <div style={{textAlign:"center"}}>
-                          <div style={{fontSize:13,fontWeight:800,color:"#059669"}}>€{Math.round(e.arr/1000)}k</div>
-                          <div style={{fontSize:9,color:"#94A3B8",fontWeight:600}}>ARR</div>
+                          <div style={{fontSize:13,fontWeight:700,color:DS.success,letterSpacing:"-0.01em"}}>€{Math.round(e.arr/1000)}k</div>
+                          <div style={{fontSize:9,color:DS.subtle,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>ARR</div>
                         </div>
                         <div style={{textAlign:"center"}}>
-                          <div style={{fontSize:13,fontWeight:800,color:"#1E3A8A"}}>{e.accounts}</div>
-                          <div style={{fontSize:9,color:"#94A3B8",fontWeight:600}}>Clientes</div>
+                          <div style={{fontSize:13,fontWeight:700,color:DS.primaryMid,letterSpacing:"-0.01em"}}>{e.accounts}</div>
+                          <div style={{fontSize:9,color:DS.subtle,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>Clientes</div>
                         </div>
                         <div style={{textAlign:"center"}}>
-                          <div style={{fontSize:13,fontWeight:800,color:"#7C3AED"}}>€{Math.round((e.booking2026||0)/1000)}k</div>
-                          <div style={{fontSize:9,color:"#94A3B8",fontWeight:600}}>Booking</div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#7C3AED",letterSpacing:"-0.01em"}}>€{Math.round((e.booking2026||0)/1000)}k</div>
+                          <div style={{fontSize:9,color:DS.subtle,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>Booking</div>
                         </div>
                       </div>
                     )}
