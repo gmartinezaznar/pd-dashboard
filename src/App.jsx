@@ -41,90 +41,48 @@ const DS = {
   shadowMd: "0 4px 16px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.04)",
   shadowLg: "0 16px 48px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.06)",
   shadowXl: "0 32px 64px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.08)",
-  // Inject global CSS
-  inject() {
-    if (document.getElementById("ds-global")) return;
-    const s = document.createElement("style");
-    s.id = "ds-global";
-    s.textContent = `
-      *, *::before, *::after { box-sizing: border-box; }
-      html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-      body { margin: 0; background: #F8F9FC;
-        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif; }
-      input, textarea, select, button { font-family: inherit; }
-
-      /* Scrollbars */
-      ::-webkit-scrollbar { width: 4px; height: 4px; }
-      ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 99px; }
-      ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
-
-      /* Animations */
-      @keyframes spin { to { transform: rotate(360deg); } }
-      @keyframes fadeIn { from { opacity:0; transform:translateY(6px) scale(0.99); } to { opacity:1; transform:translateY(0) scale(1); } }
-      @keyframes slideIn { from { opacity:0; transform:translateX(8px); } to { opacity:1; transform:translateX(0); } }
-
-      /* Utility classes */
-      .ds-glass {
-        background: rgba(255,255,255,0.72);
-        backdrop-filter: blur(20px) saturate(180%);
-        -webkit-backdrop-filter: blur(20px) saturate(180%);
-        border: 1px solid rgba(255,255,255,0.5);
-      }
-      .ds-card {
-        background: #fff;
-        border-radius: 14px;
-        border: 1px solid #E4E4E7;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-      }
-      .ds-input {
-        width: 100%; border: 1.5px solid #E4E4E7; border-radius: 10px;
-        padding: 9px 13px; font-size: 13px; color: #18181B;
-        background: #fff; outline: none;
-        transition: border-color 0.15s, box-shadow 0.15s;
-      }
-      .ds-input:focus {
-        border-color: #2563EB;
-        box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
-      }
-      .ds-input::placeholder { color: #A1A1AA; }
-      textarea.ds-input { resize: vertical; min-height: 80px; line-height: 1.5; }
-      select.ds-input { cursor: pointer; }
-      .ds-btn {
-        border: none; border-radius: 10px; cursor: pointer; font-weight: 600;
-        transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px;
-      }
-      .ds-btn-primary {
-        background: #1D4ED8; color: #fff; padding: 9px 18px; font-size: 13px;
-        box-shadow: 0 1px 2px rgba(29,78,216,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
-      }
-      .ds-btn-primary:hover { background: #1E40AF; box-shadow: 0 4px 12px rgba(29,78,216,0.35); }
-      .ds-btn-secondary {
-        background: #F4F4F5; color: #3F3F46; padding: 9px 18px; font-size: 13px;
-        border: 1px solid #E4E4E7;
-      }
-      .ds-btn-secondary:hover { background: #E4E4E7; }
-      .ds-tag {
-        display: inline-flex; align-items: center; padding: 3px 9px;
-        border-radius: 99px; font-size: 11px; font-weight: 600; letter-spacing: 0.01em;
-      }
-      .ds-section-title {
-        font-size: 10px; font-weight: 700; color: #A1A1AA;
-        text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;
-      }
-
-      /* Sidebar item hover */
-      .sidebar-row { transition: background 0.1s; }
-      .sidebar-row:hover { background: #F4F4F5 !important; }
-      .sidebar-row.selected { background: #EFF6FF !important; border-left-color: #2563EB !important; }
-
-      /* Smooth panel animation */
-      .detail-panel { animation: slideIn 0.2s ease; }
-    `;
-    document.head.appendChild(s);
-  }
 };
-DS.inject();
+// Call inject after DS is fully defined
+function injectGlobalCSS() {
+  if (document.getElementById("ds-global")) return;
+  const s = document.createElement("style");
+  s.id = "ds-global";
+  s.textContent = [
+    "*, *::before, *::after { box-sizing: border-box; }",
+    "html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }",
+    "body { margin: 0; background: #F8F9FC; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif; }",
+    "input, textarea, select, button { font-family: inherit; }",
+    "::-webkit-scrollbar { width: 4px; height: 4px; }",
+    "::-webkit-scrollbar-track { background: transparent; }",
+    "::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 99px; }",
+    "::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }",
+    "@keyframes spin { to { transform: rotate(360deg); } }",
+    "@keyframes fadeIn { from { opacity:0; transform:translateY(6px) scale(0.99); } to { opacity:1; transform:translateY(0) scale(1); } }",
+    "@keyframes slideIn { from { opacity:0; transform:translateX(8px); } to { opacity:1; transform:translateX(0); } }",
+    ".ds-glass { background: rgba(255,255,255,0.72); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgba(255,255,255,0.5); }",
+    ".ds-card { background: #fff; border-radius: 14px; border: 1px solid #E4E4E7; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); }",
+    ".ds-input { width: 100%; border: 1.5px solid #E4E4E7; border-radius: 10px; padding: 9px 13px; font-size: 13px; color: #18181B; background: #fff; outline: none; transition: border-color 0.15s, box-shadow 0.15s; }",
+    ".ds-input:focus { border-color: #2563EB; box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }",
+    ".ds-input::placeholder { color: #A1A1AA; }",
+    "textarea.ds-input { resize: vertical; min-height: 80px; line-height: 1.5; }",
+    "select.ds-input { cursor: pointer; }",
+    ".ds-btn { border: none; border-radius: 10px; cursor: pointer; font-weight: 600; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px; }",
+    ".ds-btn-primary { background: #1D4ED8; color: #fff; padding: 9px 18px; font-size: 13px; box-shadow: 0 1px 2px rgba(29,78,216,0.3), inset 0 1px 0 rgba(255,255,255,0.15); }",
+    ".ds-btn-primary:hover { background: #1E40AF; box-shadow: 0 4px 12px rgba(29,78,216,0.35); }",
+    ".ds-btn-secondary { background: #F4F4F5; color: #3F3F46; padding: 9px 18px; font-size: 13px; border: 1px solid #E4E4E7; }",
+    ".ds-btn-secondary:hover { background: #E4E4E7; }",
+    ".ds-tag { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 99px; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; }",
+    ".ds-section-title { font-size: 10px; font-weight: 700; color: #A1A1AA; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }",
+    ".sidebar-row { transition: background 0.1s; }",
+    ".sidebar-row:hover { background: #F4F4F5 !important; }",
+    ".sidebar-row.selected { background: #EFF6FF !important; border-left-color: #2563EB !important; }",
+    ".detail-panel { animation: slideIn 0.2s ease; }",
+    ".map-legend .legend-full{display:none}",
+    ".map-legend:hover .legend-full{display:block}",
+    ".map-legend:hover .legend-dot{display:none}",
+  ].join(" ");
+  document.head.appendChild(s);
+}
 
 // Level color helpers using DS
 function levelColor(e) {
@@ -911,7 +869,6 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
       {/* Density legend — minimized, expands on hover */}
       <div style={{position:"absolute",top:10,left:10,fontFamily:"system-ui,sans-serif",zIndex:10}}
         className="map-legend">
-        <style>{`.map-legend .legend-full{display:none}.map-legend:hover .legend-full{display:block}.map-legend:hover .legend-dot{display:none}`}</style>
         {/* Collapsed — just a small icon */}
         <div className="legend-dot" style={{
           width:28,height:28,background:"rgba(255,255,255,0.92)",
@@ -3169,6 +3126,7 @@ function CsvImportModal({ content, partners, savedAliases, onClose, onConfirm })
 
 export default function App() {
   const [session, setSession] = useState(()=>loadSession());
+  useEffect(()=>{ injectGlobalCSS(); }, []);
 
   const handleLogin = (user) => { saveSession(user); setSession(user); };
   const handleLogout = () => { clearSession(); setSession(null); };
