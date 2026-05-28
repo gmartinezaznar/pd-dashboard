@@ -363,7 +363,7 @@ const LABEL_OVERRIDE = {
 const DENSITY = ["#E2E8F0","#BFDBFE","#60A5FA","#2563EB","#1E3A8A"];
 const HIGHLIGHT_COLOR = "#1E3A8A"; // Cegid blue
 
-function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
+function IberianMap({ partners, prospects, selected, onSelect, hovered, onUpdate }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const [geoSpain, setGeoSpain] = useState(null);
@@ -376,27 +376,37 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
   const [geoHighlight, setGeoHighlight] = useState(null); // { province, label }
   const [partnerCoords, setPartnerCoords] = useState({}); // { partnerId: {lat, lng} }
 
-  // Geocode partner cities that don't have coords yet
+  // Geocode partner cities — save to partner.coords via onUpdate so it persists
   useEffect(()=>{
     const toGeocode = [...partners, ...prospects].filter(p=>
-      p.city && !p.coords && !partnerCoords[p.id]
+      p.city && !p.coords
     );
     if (!toGeocode.length) return;
 
-    // Geocode sequentially with 300ms delay to respect Nominatim rate limit
     let cancelled = false;
     const geocodeNext = async (index) => {
       if (cancelled || index >= toGeocode.length) return;
       const p = toGeocode[index];
       try {
-        const url = "https://nominatim.openstreetmap.org/search?q="+encodeURIComponent(p.city+", España")+"&format=json&limit=1&accept-language=es";
-        const res = await fetch(url, {headers:{"Accept-Language":"es"}});
+        const url = "https://nominatim.openstreetmap.org/search?q="
+          +encodeURIComponent(p.city+", Spain")
+          +"&format=json&limit=1&countrycodes=es,pt,ad";
+        const res = await fetch(url, {
+          headers:{
+            "User-Agent":"PD-Dashboard/1.0 (cegid-revo-channel)",
+            "Accept-Language":"es,en"
+          }
+        });
         const data = await res.json();
         if (!cancelled && data[0]) {
-          setPartnerCoords(prev=>({...prev,[p.id]:{lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon)}}));
+          const coords = {lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon)};
+          // Save to local state immediately
+          setPartnerCoords(prev=>({...prev,[p.id]:coords}));
+          // Also persist to Supabase via onUpdate
+          if (onUpdate) onUpdate({...p, coords});
         }
       } catch {}
-      setTimeout(()=>geocodeNext(index+1), 350);
+      setTimeout(()=>geocodeNext(index+1), 400);
     };
     geocodeNext(0);
     return ()=>{ cancelled=true; };
@@ -777,7 +787,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
         {projection && (()=>{
           const allPartners = [...partners, ...prospects];
           return allPartners.map(p=>{
-            const coords = partnerCoords[p.id];
+            const coords = partnerCoords[p.id] || p.coords;
             if (!coords) return null;
             const [x, y] = projection([coords.lng, coords.lat]);
             if (!x || !y || x<0 || y<0 || x>dims.w || y>dims.h) return null;
@@ -990,7 +1000,10 @@ function LocalitySearch({ normName, onHighlight }) {
     setSearching(true);
     try {
       const url = "https://nominatim.openstreetmap.org/search?q="+encodeURIComponent(q)+"&format=json&addressdetails=1&limit=15&countrycodes=es,ad&accept-language=es";
-      const res = await fetch(url, { headers: { "Accept-Language": "es" } });
+      const res = await fetch(url, { headers: {
+        "User-Agent": "PD-Dashboard/1.0 (cegid-revo-channel)",
+        "Accept-Language": "es,en"
+      }});
       const results = await res.json();
 
       const qLower = q.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
@@ -3892,7 +3905,8 @@ function AppInner({ session, onLogout }) {
           <div style={{flex:1,overflow:"hidden"}}>
             <div style={{width:"100%",height:"100%",padding:12,boxSizing:"border-box"}}>
               <IberianMap partners={data.partners} prospects={data.prospects}
-                selected={selected} onSelect={setSelected} hovered={hovered}/>
+                selected={selected} onSelect={setSelected} hovered={hovered}
+                onUpdate={updateEntity}/>
             </div>
           </div>
         )}
