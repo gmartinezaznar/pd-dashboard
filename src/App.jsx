@@ -88,6 +88,8 @@ const DS = {
         box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
       }
       .ds-input::placeholder { color: #A1A1AA; }
+      textarea.ds-input { resize: vertical; min-height: 80px; line-height: 1.5; }
+      select.ds-input { cursor: pointer; }
       .ds-btn {
         border: none; border-radius: 10px; cursor: pointer; font-weight: 600;
         transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px;
@@ -410,6 +412,34 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
   const [tooltip, setTooltip] = useState(null);
   const [dims, setDims] = useState({w:580, h:480});
   const [geoHighlight, setGeoHighlight] = useState(null); // { province, label }
+  const [partnerCoords, setPartnerCoords] = useState({}); // { partnerId: {lat, lng} }
+
+  // Geocode partner cities that don't have coords yet
+  useEffect(()=>{
+    if (!projection) return;
+    const toGeocode = [...partners, ...prospects].filter(p=>
+      p.city && !p.coords && !partnerCoords[p.id]
+    );
+    if (!toGeocode.length) return;
+
+    // Geocode sequentially with 300ms delay to respect Nominatim rate limit
+    let cancelled = false;
+    const geocodeNext = async (index) => {
+      if (cancelled || index >= toGeocode.length) return;
+      const p = toGeocode[index];
+      try {
+        const url = "https://nominatim.openstreetmap.org/search?q="+encodeURIComponent(p.city+", España")+"&format=json&limit=1&accept-language=es";
+        const res = await fetch(url, {headers:{"Accept-Language":"es"}});
+        const data = await res.json();
+        if (!cancelled && data[0]) {
+          setPartnerCoords(prev=>({...prev,[p.id]:{lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon)}}));
+        }
+      } catch {}
+      setTimeout(()=>geocodeNext(index+1), 350);
+    };
+    geocodeNext(0);
+    return ()=>{ cancelled=true; };
+  },[projection, partners.length, prospects.length]);
 
   // Responsive dims
   useEffect(()=>{
@@ -783,7 +813,52 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
                 style={{pointerEvents:"none",userSelect:"none"}}>AND</text>
             </g>
           );
-        })()}      </svg>
+        })()}
+
+        {/* Partner city dots — bullseye style */}
+        {projection && (()=>{
+          const allPartners = [...partners, ...prospects];
+          return allPartners.map(p=>{
+            const coords = partnerCoords[p.id];
+            if (!coords) return null;
+            const [x, y] = projection([coords.lng, coords.lat]);
+            if (!x || !y || x<0 || y<0 || x>dims.w || y>dims.h) return null;
+            const isHov = hovered && hovered.id===p.id;
+            const isSel = selected && selected.id===p.id;
+            const highlight = isHov || isSel;
+            return (
+              <g key={"dot-"+p.id} style={{pointerEvents:"none"}}>
+                {/* Outer ring — separated from center */}
+                <circle cx={x} cy={y} r={highlight?9:6}
+                  fill="none"
+                  stroke={highlight?"#F97316":"rgba(249,115,22,0.5)"}
+                  strokeWidth={highlight?1.5:1}
+                  style={{transition:"all 0.2s"}}/>
+                {/* Center dot */}
+                <circle cx={x} cy={y} r={highlight?2.5:1.8}
+                  fill={highlight?"#F97316":"rgba(249,115,22,0.7)"}
+                  style={{transition:"all 0.2s"}}/>
+              </g>
+            );
+          });
+        })()}
+
+        {/* Locality search result pin */}
+        {projection && geoHighlight?.lat && geoHighlight?.lng && (()=>{
+          const [x,y] = projection([geoHighlight.lng, geoHighlight.lat]);
+          if (!x||!y||x<0||y<0||x>dims.w||y>dims.h) return null;
+          return (
+            <g style={{pointerEvents:"none"}}>
+              <circle cx={x} cy={y} r={10} fill="rgba(37,99,235,0.12)"/>
+              <circle cx={x} cy={y} r={5} fill="#2563EB"
+                stroke="white" strokeWidth={1.5}/>
+              <line x1={x} y1={y-5} x2={x} y2={y-14}
+                stroke="#2563EB" strokeWidth={1.5} strokeLinecap="round"/>
+            </g>
+          );
+        })()}
+
+      </svg>
 
       {/* Click tooltip */}
       {tooltip && (()=>{
@@ -982,7 +1057,9 @@ function LocalitySearch({ normName, onHighlight }) {
         const key = locality+"-"+province;
         if (seen.has(key)) continue;
         seen.add(key);
-        items.push({ locality, province, display: locality ? locality+" ("+province+")" : province });
+        items.push({ locality, province,
+          lat: parseFloat(r.lat), lng: parseFloat(r.lon),
+          display: locality ? locality+" ("+province+")" : province });
         if (items.length >= 7) break;
       }
       setSuggestions(items);
@@ -1006,7 +1083,8 @@ function LocalitySearch({ normName, onHighlight }) {
   const choose = (item) => {
     setQuery(item.display);
     setSelected(item);
-    onHighlight({ province: item.province, label: item.locality || item.province });
+    onHighlight({ province: item.province, label: item.locality||item.province,
+      lat: item.lat, lng: item.lng });
     setOpen(false);
     setSuggestions([]);
   };
@@ -1606,8 +1684,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
 
   const inp = (val,onChange,ph) => (
     <input value={val} onChange={e=>onChange(e.target.value)} placeholder={ph}
-      style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
-        fontSize:14,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
+      className="ds-input" style={{width:"100%",boxSizing:"border-box"}}/>
   );
 
   // Mobile: full-screen. Desktop: fills the sidebar column (not fixed).
@@ -1886,8 +1963,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                         letterSpacing:"0.05em",display:"block",marginBottom:4}}>{f.label}</label>
                       <input value={infoForm[f.key]} onChange={e=>setInfoForm(fm=>({...fm,[f.key]:e.target.value}))}
                         placeholder={f.ph}
-                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
-                          fontSize:13,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
+                        className="ds-input" style={{width:"100%",boxSizing:"border-box"}}/>
                     </div>
                   ))}
                   {isActive && (
@@ -1896,8 +1972,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                         letterSpacing:"0.05em",display:"block",marginBottom:4}}>Partner desde</label>
                       <input type="date" value={infoForm.since}
                         onChange={e=>setInfoForm(fm=>({...fm,since:e.target.value}))}
-                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",
-                          fontSize:13,boxSizing:"border-box",fontFamily:"system-ui,sans-serif",color:"#1E293B"}}/>
+                        className="ds-input" style={{width:"100%",boxSizing:"border-box"}}/>
                     </div>
                   )}
                 </div>
@@ -2195,32 +2270,29 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
                   </div>
                   {/* Topics */}
                   <div>
-                    <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
-                      letterSpacing:"0.05em",display:"block",marginBottom:3}}>Temas tratados *</label>
+                    <label className="ds-section-title">Temas tratados *</label>
                     <textarea value={meetingForm.topics} rows={3}
                       onChange={e=>setMeetingForm(f=>({...f,topics:e.target.value}))}
                       placeholder="Resumen de los temas tratados…"
-                      style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:7,padding:"8px 10px",
-                        fontSize:12,resize:"none",boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+                      className="ds-input"
+                      style={{width:"100%",resize:"vertical",boxSizing:"border-box",minHeight:80}}/>
                   </div>
                   {/* Next steps */}
                   <div style={{display:"flex",gap:8}}>
                     <div style={{flex:2}}>
-                      <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
-                        letterSpacing:"0.05em",display:"block",marginBottom:3}}>Próximos pasos</label>
+                      <label className="ds-section-title">Próximos pasos</label>
                       <textarea value={meetingForm.nextSteps} rows={2}
                         onChange={e=>setMeetingForm(f=>({...f,nextSteps:e.target.value}))}
                         placeholder="Acciones acordadas…"
-                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:7,padding:"8px 10px",
-                          fontSize:12,resize:"none",boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+                        className="ds-input"
+                        style={{width:"100%",resize:"vertical",boxSizing:"border-box",minHeight:64}}/>
                     </div>
                     <div style={{flex:1}}>
-                      <label style={{fontSize:10,fontWeight:700,color:"#64748B",textTransform:"uppercase",
-                        letterSpacing:"0.05em",display:"block",marginBottom:3}}>Fecha límite</label>
+                      <label className="ds-section-title">Fecha límite</label>
                       <input type="date" value={meetingForm.nextStepsDate}
                         onChange={e=>setMeetingForm(f=>({...f,nextStepsDate:e.target.value}))}
-                        style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:7,padding:"8px 10px",
-                          fontSize:12,boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+                        className="ds-input"
+                        style={{width:"100%",boxSizing:"border-box"}}/>
                     </div>
                   </div>
                   {/* Attachment */}
@@ -2380,10 +2452,10 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
           <div>
             <div style={{marginBottom:16}}>
               <textarea value={note} onChange={e=>setNote(e.target.value)}
-                placeholder="Nueva nota interna…" rows={3}
-                style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:10,
-                  padding:"12px",fontSize:14,fontFamily:"system-ui,sans-serif",
-                  resize:"none",boxSizing:"border-box",color:"#1E293B"}}/>
+                placeholder="Nueva nota interna…" rows={4}
+                className="ds-input"
+                style={{width:"100%",resize:"vertical",boxSizing:"border-box",
+                  minHeight:90,lineHeight:1.6}}/>
               {/* Photo preview */}
               {updatePhoto && (
                 <div style={{marginTop:6,position:"relative",display:"inline-block"}}>
@@ -3501,21 +3573,14 @@ function AppInner({ session, onLogout }) {
         {/* Nav */}
         <div style={{display:"flex",alignItems:"center",gap:1,padding:"0 14px",
           borderRight:"1px solid rgba(255,255,255,0.08)"}}>
-          {[
-            {label:"Dashboard", active:view==="dashboard",
-              onClick:()=>setView(v=>v==="dashboard"?"partners":"dashboard")},
-            {label:"Mapa", active:view==="partners"&&showMap,
-              onClick:()=>{ setView("partners"); setShowMap(m=>!m); }},
-          ].map(btn=>(
-            <button key={btn.label} onClick={btn.onClick} style={{
-              background:btn.active?"rgba(255,255,255,0.1)":"transparent",
-              color:btn.active?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.6)",
-              border:"none",borderRadius:7,padding:"5px 12px",
-              fontSize:11,fontWeight:btn.active?600:400,cursor:"pointer",
-              transition:"all 0.15s",letterSpacing:"-0.01em"}}>
-              {btn.label}
-            </button>
-          ))}
+          <button onClick={()=>setView(v=>v==="dashboard"?"partners":"dashboard")} style={{
+            background:view==="dashboard"?"rgba(255,255,255,0.1)":"transparent",
+            color:view==="dashboard"?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.6)",
+            border:"none",borderRadius:7,padding:"5px 12px",
+            fontSize:11,fontWeight:view==="dashboard"?600:400,cursor:"pointer",
+            transition:"all 0.15s",letterSpacing:"-0.01em"}}>
+            Dashboard
+          </button>
         </div>
 
         <div style={{flex:1}}/>
@@ -3728,9 +3793,9 @@ function AppInner({ session, onLogout }) {
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
         {/* Sidebar + Detail panel column */}
         <div style={{
-          width: showMap ? (selected ? 480 : 290) : "100%",
+          width: showMap ? (selected ? 480 : 290) : (selected ? 300 : "100%"),
           display:"flex",flexDirection:"column",flexShrink:0,
-          borderRight: showMap ? "1px solid "+DS.borderLight : "none",
+          borderRight:"1px solid "+DS.borderLight,
           transition:"width 0.25s cubic-bezier(0.4,0,0.2,1)",overflow:"hidden",
           background:DS.white,
           boxShadow:showMap?"1px 0 0 rgba(0,0,0,0.04),4px 0 12px rgba(0,0,0,0.02)":"none"}}>
@@ -3740,6 +3805,27 @@ function AppInner({ session, onLogout }) {
           <div style={{display:"flex",flexDirection:"column",height:"100%",background:"white"}}>
           <div style={{padding:"12px 14px",borderBottom:"1px solid "+DS.borderLight,
             background:DS.white,flexShrink:0}}>
+            {/* Apple-style map toggle */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+              marginBottom:10}}>
+              <span style={{fontSize:11,fontWeight:500,color:DS.muted,letterSpacing:"-0.01em"}}>
+                Mapa
+              </span>
+              <button onClick={()=>setShowMap(m=>!m)}
+                style={{
+                  width:42,height:24,borderRadius:12,border:"none",cursor:"pointer",
+                  background:showMap?"#2563EB":"#D4D4D8",
+                  position:"relative",transition:"background 0.2s",padding:0,
+                  flexShrink:0}}>
+                <div style={{
+                  position:"absolute",top:2,
+                  left:showMap?20:2,
+                  width:20,height:20,borderRadius:"50%",
+                  background:"white",
+                  boxShadow:"0 1px 4px rgba(0,0,0,0.2)",
+                  transition:"left 0.2s cubic-bezier(0.4,0,0.2,1)"}}/>
+              </button>
+            </div>
             <div style={{position:"relative",marginBottom:8}}>
               <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",
                 fontSize:12,color:DS.subtle,pointerEvents:"none"}}>⌕</span>
@@ -3853,14 +3939,16 @@ function AppInner({ session, onLogout }) {
             </div>
           </div>
         )}
-      </div>
 
-      {/* Detail panel — floating only when map is hidden */}
-      {selected && !showMap && (
-        <DetailPanel entity={selected} onClose={()=>{setSelected(null);setHovered(null);}}
-          onUpdate={updateEntity} onAddUpdate={addUpdate}
-          onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
-      )}
+        {/* Detail panel — fills remaining space when no map */}
+        {selected && !showMap && (
+          <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+            <DetailPanel entity={selected} onClose={()=>{setSelected(null);setHovered(null);}}
+              onUpdate={updateEntity} onAddUpdate={addUpdate}
+              onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
+          </div>
+        )}
+      </div>
       {modal?.type==="csv" && <CsvImportModal content={modal.content} partners={data.partners} savedAliases={data.csvAliases||{}} onClose={()=>setModal(null)} onConfirm={handleCsvConfirm}/>}{(modal==="active"||modal==="prospect") && <NewModal type={modal} onClose={()=>setModal(null)} onSave={addEntity}/>}
       </>}
     </div>
