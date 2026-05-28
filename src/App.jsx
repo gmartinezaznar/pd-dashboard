@@ -378,7 +378,6 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
 
   // Geocode partner cities that don't have coords yet
   useEffect(()=>{
-    if (!projection) return;
     const toGeocode = [...partners, ...prospects].filter(p=>
       p.city && !p.coords && !partnerCoords[p.id]
     );
@@ -401,7 +400,7 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
     };
     geocodeNext(0);
     return ()=>{ cancelled=true; };
-  },[projection, partners.length, prospects.length]);
+  },[partners.length, prospects.length]);
 
   // Responsive dims
   useEffect(()=>{
