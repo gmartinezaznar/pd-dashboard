@@ -376,10 +376,12 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered, onUpdate
   const [geoHighlight, setGeoHighlight] = useState(null); // { province, label }
   const [partnerCoords, setPartnerCoords] = useState({}); // { partnerId: {lat, lng} }
 
-  // Geocode partner cities — save to partner.coords via onUpdate so it persists
+  // Geocode partner cities — keyed by city name so updates when city changes
   useEffect(()=>{
-    const toGeocode = [...partners, ...prospects].filter(p=>
-      p.city && !p.coords
+    const allEntities = [...partners, ...prospects];
+    // Geocode if: no coords, or coords were saved for a different city
+    const toGeocode = allEntities.filter(p=>
+      p.city && (!p.coords || p.coords.city !== p.city)
     );
     if (!toGeocode.length) return;
 
@@ -399,10 +401,13 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered, onUpdate
         });
         const data = await res.json();
         if (!cancelled && data[0]) {
-          const coords = {lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon)};
-          // Save to local state immediately
+          // Store city name alongside coords so we can detect city changes
+          const coords = {
+            lat: parseFloat(data[0].lat),
+            lng: parseFloat(data[0].lon),
+            city: p.city
+          };
           setPartnerCoords(prev=>({...prev,[p.id]:coords}));
-          // Also persist to Supabase via onUpdate
           if (onUpdate) onUpdate({...p, coords});
         }
       } catch {}
@@ -410,7 +415,9 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered, onUpdate
     };
     geocodeNext(0);
     return ()=>{ cancelled=true; };
-  },[partners.length, prospects.length]);
+  // Re-run when any city changes, not just count
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[JSON.stringify([...partners,...prospects].map(p=>p.city+p.id))]);
 
   // Responsive dims
   useEffect(()=>{
@@ -787,22 +794,22 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered, onUpdate
         {projection && (()=>{
           const allPartners = [...partners, ...prospects];
           return allPartners.map(p=>{
-            const coords = partnerCoords[p.id] || p.coords;
-            if (!coords) return null;
-            const [x, y] = projection([coords.lng, coords.lat]);
+            // Use local state first (fresh geocode), fall back to Supabase coords
+            // Only use coords if they match current city
+            const c = partnerCoords[p.id] || (p.coords?.city===p.city ? p.coords : null);
+            if (!c || !c.lat || !c.lng) return null;
+            const [x, y] = projection([c.lng, c.lat]);
             if (!x || !y || x<0 || y<0 || x>dims.w || y>dims.h) return null;
             const isHov = hovered && hovered.id===p.id;
             const isSel = selected && selected.id===p.id;
             const highlight = isHov || isSel;
             return (
               <g key={"dot-"+p.id} style={{pointerEvents:"none"}}>
-                {/* Outer ring — separated from center */}
                 <circle cx={x} cy={y} r={highlight?9:6}
                   fill="none"
                   stroke={highlight?"#F97316":"rgba(249,115,22,0.5)"}
                   strokeWidth={highlight?1.5:1}
                   style={{transition:"all 0.2s"}}/>
-                {/* Center dot */}
                 <circle cx={x} cy={y} r={highlight?2.5:1.8}
                   fill={highlight?"#F97316":"rgba(249,115,22,0.7)"}
                   style={{transition:"all 0.2s"}}/>
@@ -811,17 +818,16 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered, onUpdate
           });
         })()}
 
-        {/* Locality search result pin */}
+        {/* Locality search pin — simple green dot */}
         {projection && geoHighlight?.lat && geoHighlight?.lng && (()=>{
           const [x,y] = projection([geoHighlight.lng, geoHighlight.lat]);
           if (!x||!y||x<0||y<0||x>dims.w||y>dims.h) return null;
           return (
             <g style={{pointerEvents:"none"}}>
-              <circle cx={x} cy={y} r={10} fill="rgba(37,99,235,0.12)"/>
-              <circle cx={x} cy={y} r={5} fill="#2563EB"
-                stroke="white" strokeWidth={1.5}/>
-              <line x1={x} y1={y-5} x2={x} y2={y-14}
-                stroke="#2563EB" strokeWidth={1.5} strokeLinecap="round"/>
+              <circle cx={x} cy={y} r={8} fill="none"
+                stroke="rgba(22,163,74,0.5)" strokeWidth={1}/>
+              <circle cx={x} cy={y} r={3} fill="#16A34A"/>
+              <circle cx={x} cy={y} r={1.2} fill="white"/>
             </g>
           );
         })()}
@@ -3253,6 +3259,7 @@ function AppInner({ session, onLogout }) {
   },[]);
 
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileView, setMobileView] = useState("partners");
   const addMenuRef = useRef(null);
@@ -3773,59 +3780,89 @@ function AppInner({ session, onLogout }) {
           {/* List sidebar — hidden when detail panel open and map is visible */}
           {(!selected || !showMap) && (
           <div style={{display:"flex",flexDirection:"column",height:"100%",background:"white"}}>
-          <div style={{padding:"12px 14px",borderBottom:"1px solid "+DS.borderLight,
+          <div style={{padding:"10px 12px",borderBottom:"1px solid "+DS.borderLight,
             background:DS.white,flexShrink:0}}>
-            {/* Apple-style map toggle */}
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
-              marginBottom:10}}>
-              <span style={{fontSize:11,fontWeight:500,color:DS.muted,letterSpacing:"-0.01em"}}>
-                Mapa
-              </span>
-              <button onClick={()=>setShowMap(m=>!m)}
-                style={{
-                  width:42,height:24,borderRadius:12,border:"none",cursor:"pointer",
+            {/* Top row: search + filter icon + map toggle */}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:0}}>
+              <div style={{position:"relative",flex:1}}>
+                <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",
+                  fontSize:12,color:DS.subtle,pointerEvents:"none"}}>⌕</span>
+                <input value={search} onChange={e=>setSearch(e.target.value)}
+                  placeholder="Buscar…"
+                  style={{width:"100%",border:"1.5px solid "+DS.border,
+                    borderRadius:10,padding:"7px 11px 7px 28px",fontSize:12,
+                    color:DS.title,outline:"none",background:DS.surface,
+                    transition:"border-color 0.15s,box-shadow 0.15s",boxSizing:"border-box"}}
+                  onFocus={e=>{e.target.style.borderColor=DS.accent;e.target.style.boxShadow="0 0 0 3px rgba(37,99,235,0.1)";e.target.style.background="white"}}
+                  onBlur={e=>{e.target.style.borderColor=DS.border;e.target.style.boxShadow="none";e.target.style.background=DS.surface}}/>
+              </div>
+
+              {/* Filter icon button */}
+              <div style={{position:"relative",flexShrink:0}}>
+                <button onClick={()=>setFilterOpen(o=>!o)} style={{
+                  width:34,height:34,border:"1.5px solid "+(filterOpen?DS.accent:DS.border),
+                  borderRadius:10,background:filterOpen?DS.primaryLight:DS.surface,
+                  cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:14,transition:"all 0.15s",flexShrink:0,position:"relative"}}>
+                  ⊟
+                  {(filter!=="all"||sort!=="arr") && (
+                    <span style={{position:"absolute",top:3,right:3,width:6,height:6,
+                      borderRadius:"50%",background:DS.accent}}/>
+                  )}
+                </button>
+                {filterOpen && (
+                  <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,
+                    background:"rgba(255,255,255,0.97)",backdropFilter:"blur(16px)",
+                    borderRadius:12,boxShadow:DS.shadowLg,
+                    border:"1px solid rgba(0,0,0,0.06)",
+                    padding:"12px 14px",zIndex:50,minWidth:200,
+                    animation:"fadeIn 0.1s ease"}}>
+                    <div className="ds-section-title" style={{marginBottom:6}}>Filtrar por tipo</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:12}}>
+                      {[{v:"all",l:"Todos"},{v:"active",l:"Activos"},{v:"premium",l:"Premium"},
+                        {v:"specialist",l:"Specialist"},{v:"prospect",l:"Prospectos"}].map(o=>(
+                        <button key={o.v} onClick={()=>setFilter(o.v)} style={{
+                          padding:"4px 10px",borderRadius:99,fontSize:11,fontWeight:600,
+                          cursor:"pointer",border:"none",transition:"all 0.12s",
+                          background:filter===o.v?DS.primaryMid:DS.surfaceMid,
+                          color:filter===o.v?"white":DS.muted}}>
+                          {o.l}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="ds-section-title" style={{marginBottom:6}}>Ordenar</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      {[{v:"arr",l:"Mayor ARR"},{v:"az",l:"A → Z"},{v:"za",l:"Z → A"}].map(o=>(
+                        <button key={o.v} onClick={()=>setSort(o.v)} style={{
+                          padding:"6px 10px",borderRadius:8,fontSize:12,
+                          cursor:"pointer",border:"none",textAlign:"left",
+                          transition:"all 0.12s",fontWeight:sort===o.v?600:400,
+                          background:sort===o.v?DS.primaryLight:DS.surface,
+                          color:sort===o.v?DS.accent:DS.body}}>
+                          {sort===o.v?"✓ ":""}{o.l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Map toggle inline */}
+              <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                <span style={{fontSize:10,fontWeight:500,color:DS.subtle}}>Mapa</span>
+                <button onClick={()=>setShowMap(m=>!m)} style={{
+                  width:38,height:22,borderRadius:11,border:"none",cursor:"pointer",
                   background:showMap?"#2563EB":"#D4D4D8",
-                  position:"relative",transition:"background 0.2s",padding:0,
-                  flexShrink:0}}>
-                <div style={{
-                  position:"absolute",top:2,
-                  left:showMap?20:2,
-                  width:20,height:20,borderRadius:"50%",
-                  background:"white",
-                  boxShadow:"0 1px 4px rgba(0,0,0,0.2)",
-                  transition:"left 0.2s cubic-bezier(0.4,0,0.2,1)"}}/>
-              </button>
-            </div>
-            <div style={{position:"relative",marginBottom:8}}>
-              <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",
-                fontSize:12,color:DS.subtle,pointerEvents:"none"}}>⌕</span>
-              <input value={search} onChange={e=>setSearch(e.target.value)}
-                placeholder="Buscar…"
-                style={{width:"100%",border:"1.5px solid "+DS.border,
-                  borderRadius:10,padding:"8px 11px 8px 28px",fontSize:12,
-                  color:DS.title,outline:"none",background:DS.surface,
-                  transition:"border-color 0.15s,box-shadow 0.15s"}}
-                onFocus={e=>{e.target.style.borderColor=DS.accent;e.target.style.boxShadow="0 0 0 3px rgba(37,99,235,0.1)";e.target.style.background="white"}}
-                onBlur={e=>{e.target.style.borderColor=DS.border;e.target.style.boxShadow="none";e.target.style.background=DS.surface}}/>
-            </div>
-            <div style={{display:"flex",gap:6}}>
-              {[
-                {state:filter, set:setFilter, opts:[
-                  {v:"all",l:"Todos"},{v:"active",l:"Activos"},{v:"premium",l:"Premium"},
-                  {v:"specialist",l:"Specialist"},{v:"prospect",l:"Prospectos"}
-                ]},
-                {state:sort, set:setSort, opts:[
-                  {v:"arr",l:"Mayor ARR"},{v:"az",l:"A → Z"},{v:"za",l:"Z → A"}
-                ]},
-              ].map((sel,i)=>(
-                <select key={i} value={sel.state} onChange={e=>sel.set(e.target.value)}
-                  style={{flex:1,border:"1.5px solid "+DS.border,borderRadius:9,
-                    padding:"6px 8px",fontSize:11,color:DS.body,
-                    background:DS.surface,cursor:"pointer",outline:"none",
-                    fontFamily:"inherit"}}>
-                  {sel.opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
-                </select>
-              ))}
+                  position:"relative",transition:"background 0.2s",padding:0,flexShrink:0}}>
+                  <div style={{
+                    position:"absolute",top:2,
+                    left:showMap?18:2,
+                    width:18,height:18,borderRadius:"50%",
+                    background:"white",
+                    boxShadow:"0 1px 4px rgba(0,0,0,0.2)",
+                    transition:"left 0.2s cubic-bezier(0.4,0,0.2,1)"}}/>
+                </button>
+              </div>
             </div>
           </div>
           <div style={{flex:1,overflowY:"auto"}}>
@@ -3911,12 +3948,48 @@ function AppInner({ session, onLogout }) {
           </div>
         )}
 
-        {/* Detail panel — fills remaining space when no map */}
+        {/* Detail panel — fixed overlay when no map */}
         {selected && !showMap && (
-          <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-            <DetailPanel entity={selected} onClose={()=>{setSelected(null);setHovered(null);}}
-              onUpdate={updateEntity} onAddUpdate={addUpdate}
-              onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
+          <div style={{
+            position:"fixed",top:57,left:0,right:0,bottom:0,
+            background:DS.bg,zIndex:20,
+            display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            {/* Back bar */}
+            <div style={{height:44,background:DS.white,
+              borderBottom:"1px solid "+DS.borderLight,
+              display:"flex",alignItems:"center",padding:"0 20px",
+              flexShrink:0,gap:12,boxShadow:DS.shadowXs}}>
+              <button onClick={()=>setSelected(null)} style={{
+                background:"none",border:"none",cursor:"pointer",
+                display:"flex",alignItems:"center",gap:6,
+                color:DS.accent,fontSize:13,fontWeight:600,padding:0,
+                transition:"opacity 0.15s"}}
+                onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+                onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+                ← Volver
+              </button>
+              <span style={{color:DS.border}}>|</span>
+              <span style={{fontSize:13,color:DS.muted,flex:1,overflow:"hidden",
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{selected.name}</span>
+              <button onClick={()=>setSelected(null)} style={{
+                background:DS.surfaceMid,border:"none",borderRadius:"50%",
+                width:26,height:26,cursor:"pointer",fontSize:14,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                color:DS.muted}}>×</button>
+            </div>
+            {/* Panel centered with comfortable max-width */}
+            <div style={{flex:1,overflow:"hidden",display:"flex",
+              justifyContent:"center",background:DS.bg}}>
+              <div style={{width:"100%",maxWidth:860,display:"flex",
+                flexDirection:"column",overflow:"hidden",
+                background:DS.white,
+                borderLeft:"1px solid "+DS.borderLight,
+                borderRight:"1px solid "+DS.borderLight}}>
+                <DetailPanel entity={selected} onClose={()=>setSelected(null)}
+                  onUpdate={updateEntity} onAddUpdate={addUpdate}
+                  onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
+              </div>
+            </div>
           </div>
         )}
       </div>
