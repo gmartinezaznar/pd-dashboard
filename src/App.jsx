@@ -401,6 +401,10 @@ const LABEL_OVERRIDE = {
   "Baleares": [2.92, 39.57],
 };
 
+// Map constants — module scope to avoid temporal dead zone in production
+const DENSITY = ["#E2E8F0","#BFDBFE","#60A5FA","#2563EB","#1E3A8A"];
+const HIGHLIGHT_COLOR = "#1E3A8A"; // Cegid blue
+
 function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
@@ -536,12 +540,11 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
     });
   });
 
-  // Density color scale: 0=gray, 1=light blue … 4+=dark blue
-  const DENSITY = ["#E2E8F0","#BFDBFE","#60A5FA","#2563EB","#1E3A8A"];
+
+  // getProvColor uses module-level DENSITY
   const getProvColor = (norm) => {
     const primary = (provMap[norm]||[]).length;
     if (primary > 0) return DENSITY[Math.min(primary, DENSITY.length-1)];
-    // secondary only → use density color but will add hatch
     const secondary = (provMapSecondary[norm]||[]).length;
     return DENSITY[Math.min(secondary, DENSITY.length-1)];
   };
@@ -573,8 +576,6 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered }) {
   }, [geoSpain, geoPortugal, dims.w, dims.h]);
 
   const pathGen = projection ? d3.geoPath().projection(projection) : null;
-
-  const HIGHLIGHT_COLOR = "#1E3A8A"; // Cegid blue
 
   const renderFeature = (f, i) => {
     if (!pathGen) return null;
@@ -1157,7 +1158,6 @@ function LocalitySearch({ normName, onHighlight }) {
 function CanariasInset({ provMap, geoSpain, pathGen, normName, onSelect, selected, hovered, densityColors }) {
   const [sharedPopup, setSharedPopup] = useState(null);
   const W=240, H=120;
-  const HIGHLIGHT_COLOR = "#1E3A8A";
   const getColor = (norm) => densityColors[Math.min((provMap[norm]||[]).length, densityColors.length-1)];
 
   const canFeatures = geoSpain ? geoSpain.filter(f=>{
