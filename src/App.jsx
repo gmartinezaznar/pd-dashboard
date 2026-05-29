@@ -392,13 +392,8 @@ function IberianMap({ partners, prospects, selected, onSelect, hovered, onUpdate
       try {
         const url = "https://nominatim.openstreetmap.org/search?q="
           +encodeURIComponent(p.city+", Spain")
-          +"&format=json&limit=1&countrycodes=es,pt,ad";
-        const res = await fetch(url, {
-          headers:{
-            "User-Agent":"PD-Dashboard/1.0 (cegid-revo-channel)",
-            "Accept-Language":"es,en"
-          }
-        });
+          +"&format=json&limit=1&countrycodes=es,pt,ad&email=pd-dashboard@cegid.com";
+        const res = await fetch(url);
         const data = await res.json();
         if (!cancelled && data[0]) {
           // Store city name alongside coords so we can detect city changes
@@ -1005,11 +1000,8 @@ function LocalitySearch({ normName, onHighlight }) {
     if (q.trim().length < 2) { setSuggestions([]); setOpen(false); return; }
     setSearching(true);
     try {
-      const url = "https://nominatim.openstreetmap.org/search?q="+encodeURIComponent(q)+"&format=json&addressdetails=1&limit=15&countrycodes=es,ad&accept-language=es";
-      const res = await fetch(url, { headers: {
-        "User-Agent": "PD-Dashboard/1.0 (cegid-revo-channel)",
-        "Accept-Language": "es,en"
-      }});
+      const url = "https://nominatim.openstreetmap.org/search?q="+encodeURIComponent(q)+"&format=json&addressdetails=1&limit=15&countrycodes=es,ad&accept-language=es&email=pd-dashboard@cegid.com";
+      const res = await fetch(url);
       const results = await res.json();
 
       const qLower = q.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
@@ -1502,7 +1494,7 @@ function ImageLightbox({ src, onClose }) {
 }
 
 // ── Detail Panel — shared desktop/mobile ───────────────────────────────────
-function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDelete, isMobile }) {
+function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDelete, isMobile, isFullscreen }) {
   const entityRef = useRef(entity);
   useEffect(()=>{ entityRef.current = entity; }, [entity]);
   const isActive = entity.type==="active";
@@ -1669,7 +1661,8 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
     overflowY:"auto"
   } : {
     flex:1,background:"white",
-    display:"flex",flexDirection:"column",fontFamily:"system-ui,sans-serif",
+    display:"flex",flexDirection:isFullscreen?"row":"column",
+    fontFamily:"system-ui,sans-serif",
     height:"100%",overflow:"hidden"
   };
 
@@ -1677,8 +1670,89 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
     <div style={panelStyle}>
       {lightboxPhoto && <ImageLightbox src={lightboxPhoto} onClose={()=>setLightboxPhoto(null)}/>}
 
-      {/* Header — Apple style */}
-      <div style={{
+      {/* FULLSCREEN: Left identity column */}
+      {isFullscreen && (
+        <div style={{width:280,flexShrink:0,
+          background:"linear-gradient(170deg,"+hdr+" 0%,"+hdr+"E0 100%)",
+          display:"flex",flexDirection:"column",overflow:"hidden",position:"relative",
+          borderRight:"1px solid rgba(255,255,255,0.08)"}}>
+          <div style={{position:"absolute",inset:0,
+            background:"radial-gradient(ellipse at top right,rgba(255,255,255,0.1),transparent 60%)",
+            pointerEvents:"none"}}/>
+          <div style={{padding:"28px 22px",flex:1,overflowY:"auto",position:"relative"}}>
+            {/* Status */}
+            <button onClick={()=>setEditingStatus(true)} style={{
+              background:"rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.75)",
+              fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:99,
+              letterSpacing:"0.05em",textTransform:"uppercase",
+              border:"1px solid rgba(255,255,255,0.15)",cursor:"pointer",marginBottom:16,
+              display:"inline-flex",alignItems:"center",gap:4}}>
+              {isActive?entity.level:entity.stage||"Prospecto"} ✎
+            </button>
+            {entity.logo && <img src={entity.logo} style={{width:44,height:44,borderRadius:10,objectFit:"contain",background:"rgba(255,255,255,0.12)",padding:5,marginBottom:12,display:"block"}}/>}
+            <div style={{fontSize:20,fontWeight:700,color:"white",letterSpacing:"-0.02em",lineHeight:1.2,marginBottom:5}}>{entity.name}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:22}}>
+              {entity.city}{isActive&&entity.since?" · desde "+entity.since.split("-")[0]:""}
+            </div>
+            {isActive && (
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:22}}>
+                {[
+                  {l:"ARR",v:"€"+Math.round((entity.arr||0)/1000)+"k"},
+                  {l:"Clientes",v:entity.accounts||"—"},
+                  {l:"Booking",v:"€"+Math.round((entity.booking2026||0)/1000)+"k"},
+                  {l:"Nivel",v:entity.level==="premium"?"Premium":"Specialist"},
+                ].map(k=>(
+                  <div key={k.l} style={{background:"rgba(255,255,255,0.09)",borderRadius:9,padding:"9px 11px"}}>
+                    <div style={{fontSize:8,color:"rgba(255,255,255,0.35)",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:3}}>{k.l}</div>
+                    <div style={{fontSize:15,fontWeight:700,color:"white",letterSpacing:"-0.02em"}}>{k.v}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {[
+                {icon:"📍",val:entity.city},
+                {icon:"📞",val:entity.phone},
+                {icon:"✉️",val:entity.email,isEmail:true},
+                {icon:"🌐",val:entity.website,isLink:true},
+                {icon:"🔑",val:entity.cif},
+                {icon:"🏠",val:entity.address},
+              ].filter(r=>r.val).map(r=>(
+                <div key={r.icon} style={{display:"flex",gap:7,fontSize:11,alignItems:"flex-start"}}>
+                  <span style={{fontSize:12,opacity:0.5,flexShrink:0,marginTop:1}}>{r.icon}</span>
+                  {r.isLink?<a href={entity.website} target="_blank" rel="noreferrer" style={{color:"rgba(255,255,255,0.6)",textDecoration:"none",wordBreak:"break-all"}}>{entity.website}</a>
+                  :r.isEmail?<a href={"mailto:"+entity.email} style={{color:"rgba(255,255,255,0.6)",textDecoration:"none"}}>{entity.email}</a>
+                  :<span style={{color:"rgba(255,255,255,0.6)"}}>{r.val}</span>}
+                </div>
+              ))}
+            </div>
+            {((entity.provinces||[]).length>0||(entity.provincesSecondary||[]).length>0) && (
+              <div style={{marginTop:18}}>
+                <div style={{fontSize:8,color:"rgba(255,255,255,0.28)",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:7}}>Territorios</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                  {(entity.provinces||[]).map(p=><span key={p} style={{background:"rgba(255,255,255,0.13)",color:"rgba(255,255,255,0.7)",fontSize:9,padding:"2px 7px",borderRadius:99}}>{p}</span>)}
+                  {(entity.provincesSecondary||[]).map(p=><span key={p} style={{background:"rgba(255,255,255,0.06)",color:"rgba(255,255,255,0.4)",fontSize:9,padding:"2px 7px",borderRadius:99,border:"1px dashed rgba(255,255,255,0.18)"}}>{p}</span>)}
+                </div>
+              </div>
+            )}
+          </div>
+          <div style={{padding:"14px 22px",borderTop:"1px solid rgba(255,255,255,0.1)",display:"flex",gap:7,flexShrink:0}}>
+            <button onClick={()=>setShowEditModal(true)} style={{
+              flex:1,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.12)",
+              color:"rgba(255,255,255,0.75)",borderRadius:8,padding:"8px",fontSize:11,
+              cursor:"pointer",fontWeight:500}}>✏︎ Editar</button>
+            {!isActive&&<button onClick={()=>setShowPromote(true)} style={{
+              flex:1,background:"rgba(16,185,129,0.8)",border:"none",
+              color:"white",borderRadius:8,padding:"8px",fontSize:11,fontWeight:600,cursor:"pointer"}}>↑ Convertir</button>}
+          </div>
+        </div>
+      )}
+
+      {/* Main content column (or full width when not fullscreen) */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:isFullscreen?"#FAFAFA":"white"}}>
+
+      {/* Header — collapsed to tabs-only in fullscreen */}
+      {!isFullscreen && <div style={{
         background:"linear-gradient(160deg,"+hdr+" 0%,"+hdr+"E8 100%)",
         padding:isMobile?"18px 18px 0":"16px 20px 0",
         flexShrink:0,position:"relative"}}>
@@ -1851,9 +1925,28 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
             </button>
           ))}
         </div>
-      </div>
+      </div>}
 
-      <div style={{flex:1,overflowY:"auto",padding:isMobile?"16px":"16px 18px",
+      {/* Fullscreen tabs — underline style */}
+      {isFullscreen && (
+        <div style={{background:DS.white,borderBottom:"1px solid "+DS.borderLight,
+          padding:"0 32px",display:"flex",gap:2,flexShrink:0,boxShadow:DS.shadowXs}}>
+          {tabs.map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{
+              background:"none",border:"none",
+              borderBottom:"2px solid "+(tab===t.id?hdr:"transparent"),
+              color:tab===t.id?DS.title:DS.muted,
+              padding:"14px 18px",fontSize:13,fontWeight:tab===t.id?600:400,
+              cursor:"pointer",transition:"all 0.15s",letterSpacing:"-0.01em",
+              marginBottom:"-1px"}}>
+              {t.l}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div style={{flex:1,overflowY:"auto",
+        padding:isFullscreen?"28px 40px":(isMobile?"16px":"16px 18px"),
         background:"#FAFAFA"}}>
         {showPromote && <PromoteModal entity={entity} onClose={()=>setShowPromote(false)} onPromote={onPromote}/>}
 
@@ -2697,6 +2790,7 @@ function DetailPanel({ entity, onClose, onUpdate, onAddUpdate, onPromote, onDele
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
@@ -3803,8 +3897,14 @@ function AppInner({ session, onLogout }) {
                   width:34,height:34,border:"1.5px solid "+(filterOpen?DS.accent:DS.border),
                   borderRadius:10,background:filterOpen?DS.primaryLight:DS.surface,
                   cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
-                  fontSize:14,transition:"all 0.15s",flexShrink:0,position:"relative"}}>
-                  ⊟
+                  transition:"all 0.15s",flexShrink:0,position:"relative",padding:0}}>
+                  {/* SVG funnel icon */}
+                  <svg width="14" height="13" viewBox="0 0 14 13" fill="none">
+                    <path d="M1 1h12L8.5 6.5V12L5.5 10.5V6.5L1 1z"
+                      fill={filterOpen?DS.accent:"none"}
+                      stroke={filterOpen?DS.accent:DS.muted} strokeWidth="1.4"
+                      strokeLinejoin="round" strokeLinecap="round"/>
+                  </svg>
                   {(filter!=="all"||sort!=="arr") && (
                     <span style={{position:"absolute",top:3,right:3,width:6,height:6,
                       borderRadius:"50%",background:DS.accent}}/>
@@ -3987,7 +4087,8 @@ function AppInner({ session, onLogout }) {
                 borderRight:"1px solid "+DS.borderLight}}>
                 <DetailPanel entity={selected} onClose={()=>setSelected(null)}
                   onUpdate={updateEntity} onAddUpdate={addUpdate}
-                  onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}/>
+                  onPromote={promoteProspect} onDelete={deleteEntity} isMobile={false}
+                  isFullscreen={true}/>
               </div>
             </div>
           </div>
